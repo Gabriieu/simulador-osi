@@ -403,7 +403,7 @@ Decisões de interface que valem registro:
 - **Atalhos:** `Enter` executa, `Esc` pausa,
   `Ctrl+R` reinicia, `Ctrl+S` salva o registro.
 
-> ![Descrição da imagem](../docs/images/tres-colunas.png)
+> ![Tela Principal](../docs/images/tela-principal.png)
 
 ---
 

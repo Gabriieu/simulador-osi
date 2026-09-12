@@ -1,14 +1,3 @@
-# Tutorial de execução
-
-Como colocar o simulador para funcionar, do jeito mais curto ao mais completo.
-Se algo der errado, a Seção 5 provavelmente já tem a resposta.
-
-> Este documento é feito para ser exportado em PDF. No Visual Studio Code, use
-> a extensão *Markdown PDF*; no navegador, abra o arquivo renderizado no GitHub
-> e imprima em PDF.
-
----
-
 ## 1. O caminho mais curto: o executável
 
 Serve para quem só quer ver o simulador rodando, sem instalar Python.
@@ -22,8 +11,8 @@ Se aparecer a tela azul *"O Windows protegeu o computador"*, clique em **Mais
 informações** e depois em **Executar assim mesmo**. O aviso aparece em qualquer
 programa sem assinatura digital paga.
 
-> 📸 **Captura de tela 1.** Substitua este trecho pela imagem da janela recém-aberta.
-> Sugestão: `docs/imagens/execucao-primeira-tela.png`.
+> 📸 **Captura de tela 1.**
+> > ![Tela Principal](../docs/images/tela-principal.png)
 
 ---
 
@@ -46,7 +35,7 @@ Em alguns sistemas o comando é `python3` em vez de `python`.
 ### 2.2 Obtenha o projeto
 
 ```bash
-git clone [PREENCHER — URL do seu fork]
+git clone git@github.com:Gabriieu/simulador-osi.git
 cd simulador-osi
 ```
 
@@ -112,9 +101,6 @@ O `topologia.json` vai embutido no executável, mas o programa procura primeiro
 uma cópia ao lado do `.exe`. Para distribuir uma rede diferente, basta deixar um
 `topologia.json` na mesma pasta.
 
-Para usar um ícone próprio, coloque um arquivo `.ico` em `recursos/icone.ico`
-antes de gerar: o `build_exe.py` o utiliza automaticamente.
-
 ---
 
 ## 5. Problemas comuns
@@ -131,9 +117,3 @@ antes de gerar: o `build_exe.py` o utiliza automaticamente.
 | O antivírus bloqueia o `.exe` | Executável sem assinatura | Libere o arquivo, ou execute pelo código-fonte |
 
 ---
-
-## 6. Como desinstalar
-
-Não há instalação: apague a pasta do projeto e, se existir, o `SimuladorOSI.exe`
-baixado. O programa não escreve no registro do Windows nem fora da própria
-pasta, exceto os arquivos de registro que você mesmo salvar.

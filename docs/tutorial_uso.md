@@ -1,33 +1,8 @@
-# Tutorial de uso
-
-Um passeio pela janela do simulador e um roteiro pelos sete casos de
-demonstração. Leia com o programa aberto ao lado.
-
-> Este documento é feito para ser exportado em PDF. Substitua os blocos
-> marcados com 📸 pelas capturas de tela do seu grupo antes de exportar.
-
----
-
-## 1. A janela em cinco áreas
-
-> 📸 **Captura de tela 1 — janela inteira, com as cinco áreas numeradas.**
-> Sugestão: `docs/imagens/uso-visao-geral.png`.
-
-| Área | Onde fica | O que mostra |
-|---|---|---|
-| Barra superior | topo | Escolha do caso, carregar topologia, tabelas de encaminhamento, alternância OSI/TCP-IP |
-| Mapa da rede | esquerda | Os nove dispositivos, os enlaces, os custos e as falhas |
-| Pilhas de camadas | centro | As camadas de cada dispositivo do percurso, com a ativa em destaque |
-| Painel de dados | direita | Parâmetros, unidade de dados, endereços e eficiência |
-| Rodapé | base | Controles de execução e o registro textual |
-
----
-
-## 2. Primeira execução, em quatro passos
+## 1. Primeira execução, em quatro passos
 
 1. **Escolha o caso.** A lista no topo já vem em *E2/C2 — Entrega indireta*,
    que é o caso central. Ao trocar de caso, os parâmetros se ajustam sozinhos.
-2. **Pressione *Passo*** (ou a tecla `Espaço`). Observe três coisas ao mesmo
+2. **Pressione *Passo*** Observe três coisas ao mesmo
    tempo: a camada que acende no centro, o bloco que aparece na unidade de dados
    à direita e a linha nova no registro embaixo.
 3. **Repita.** Da camada 7 até a 1 na origem, atravessando cada roteador pelas
@@ -40,15 +15,15 @@ e Rápida, para chegar logo ao fim.
 
 ---
 
-## 3. O que olhar em cada área
+## 2. O que olhar em cada área
 
-### 3.1 O mapa
+### 2.1 O mapa
 
 O enlace por onde o quadro está passando fica destacado em âmbar. Os números
 junto aos traços são os custos usados na decisão de rota. Um enlace derrubado
 aparece tracejado, em vermelho, com um `X`.
 
-### 3.2 As pilhas
+### 2.2 As pilhas
 
 Só a camada ativa fica colorida. Repare que os roteadores têm **três** camadas e
 os computadores têm **sete**: essa é a diferença central do modelo, e ela está
@@ -57,22 +32,19 @@ desenhada, não apenas escrita.
 Ao chegar a um roteador, o quadro sobe até a camada 3, a decisão de rota
 acontece ali, e o quadro desce de novo. Ele nunca alcança a camada 4.
 
-### 3.3 A unidade de dados
+### 2.3 A unidade de dados
 
 Os blocos seguem a ordem real: cabeçalhos à esquerda, dados no meio, finalizador
 à direita. Cada bloco mostra o seu tamanho em octetos, e o total acompanha o
 número que aparece no fim da linha do registro.
 
-> 📸 **Captura de tela 2 — a unidade de dados completa,** com os quatro
-> cabeçalhos e o finalizador. Sugestão: `docs/imagens/uso-unidade-dados.png`.
-
-### 3.4 Os endereços
+### 2.4 Os endereços
 
 As duas colunas lado a lado são o ponto mais importante da tela: os endereços
 lógicos **não mudam** do começo ao fim, e os físicos mudam a **cada enlace**.
 Avance alguns passos olhando só para essas colunas.
 
-### 3.5 O registro
+### 2.5 O registro
 
 Cinco campos: passo, dispositivo, camada, ação e descrição, com o tamanho da
 unidade no fim. A linha correspondente ao passo atual fica destacada e a lista
@@ -82,7 +54,7 @@ rola sozinha. Linhas de descarte aparecem em vermelho.
 
 ---
 
-## 4. Roteiro dos sete casos
+## 3. Roteiro dos sete casos
 
 A ordem abaixo funciona bem como demonstração para a turma.
 
@@ -101,8 +73,8 @@ Pare no passo 11 e leia a linha de roteamento em R1: `10.0.3.0/24 via R4, custo
 2, interface e1`. Abra *Tabelas de encaminhamento*, na barra superior, e procure
 essa mesma linha na tabela de R1.
 
-> 📸 **Captura de tela 3 — janela de tabelas de encaminhamento.**
-> Sugestão: `docs/imagens/uso-tabelas.png`.
+> 📸 **Janela de tabelas de encaminhamento.**
+> > ![Tabelas](../docs/images/uso-tabelas.png)
 
 ### E3/C3 — Dois fluxos ao mesmo tempo
 
@@ -132,9 +104,6 @@ encontra divergência e descarta o quadro. O ponto a observar é o que **não**
 aparece: não existe nenhuma linha de camada 3 em R3. O erro foi detectado antes
 de a camada superior ser acionada.
 
-> 📸 **Captura de tela 4 — registro do caso E6/C6,** com a linha de descarte em
-> vermelho. Sugestão: `docs/imagens/uso-descarte.png`.
-
 ### E7/C7 — Mensagem longa
 
 Uma mensagem de 100 octetos ultrapassa o limite e é dividida em três segmentos,
@@ -144,7 +113,7 @@ acionada quando a mensagem está completa outra vez.
 
 ---
 
-## 5. Experimentos por conta própria
+## 4. Experimentos por conta própria
 
 - **Mude a mensagem.** Escreva um texto seu no campo *Mensagem* e pressione
   *Simular*. Veja a eficiência subir conforme o texto cresce — a sobrecarga é
@@ -160,11 +129,10 @@ acionada quando a mensagem está completa outra vez.
 
 ---
 
-## 6. Atalhos de teclado
+## 5. Atalhos de teclado
 
 | Tecla | Ação |
 |---|---|
-| `Espaço` | Avança um passo |
 | `Enter` | Executa automaticamente |
 | `Esc` | Pausa |
 | `Ctrl+R` | Reinicia |
