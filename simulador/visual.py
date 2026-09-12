@@ -296,6 +296,27 @@ class AplicacaoSimulador(tk.Tk):
         self._canvas_mapa.grid(row=0, column=0, sticky="nsew")
         self._canvas_mapa.bind("<Configure>", lambda _e: self._desenhar_mapa())
 
+        self._canvas_mapa = tk.Canvas(
+            painel, background=PALETA["painel"], highlightthickness=0, height=300
+        )
+        self._canvas_mapa.grid(row=0, column=0, sticky="nsew")
+        self._canvas_mapa.bind("<Configure>", lambda _e: self._desenhar_mapa())
+
+        # --- VARIÁVEIS DE ESTADO DE VISUALIZAÇÃO ---
+        self._mapa_zoom = 1.0
+        self._mapa_pan_x = 0.0
+        self._mapa_pan_y = 0.0
+        self._drag_start_x = 0
+        self._drag_start_y = 0
+
+        # --- BINDS DE ZOOM E ARRASTO ---
+        self._canvas_mapa.bind("<ButtonPress-1>", self._iniciar_arrasto)
+        self._canvas_mapa.bind("<B1-Motion>", self._arrastar)
+        self._canvas_mapa.bind("<MouseWheel>", self._aplicar_zoom)
+        self._canvas_mapa.bind("<Button-4>", self._aplicar_zoom)
+        self._canvas_mapa.bind("<Button-5>", self._aplicar_zoom)
+        self._canvas_mapa.bind("<Double-Button-1>", self._resetar_visualizacao)
+
         falhas = self._painel(coluna, "Provocar falhas")
         falhas.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         falhas.columnconfigure(1, weight=1)
@@ -330,6 +351,53 @@ class AplicacaoSimulador(tk.Tk):
         )
         self._rotulo_falhas.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
+    def _iniciar_arrasto(self, event):
+        """Salva a posição inicial do mouse ao clicar."""
+        self._drag_start_x = event.x
+        self._drag_start_y = event.y
+
+    def _arrastar(self, event):
+        """Calcula a diferença do movimento e move os elementos."""
+        dx = event.x - self._drag_start_x
+        dy = event.y - self._drag_start_y
+        self._drag_start_x = event.x
+        self._drag_start_y = event.y
+
+        # Atualiza a posição global do mapa
+        self._mapa_pan_x += dx
+        self._mapa_pan_y += dy
+        
+        # Move visualmente os itens já renderizados
+        self._canvas_mapa.move("all", dx, dy)
+
+    def _aplicar_zoom(self, event):
+        """Calcula o novo fator de zoom e ajusta a posição para focar no mouse."""
+        if event.num == 4 or event.delta > 0:
+            fator = 1.1
+        elif event.num == 5 or event.delta < 0:
+            fator = 0.9
+        else:
+            return
+
+        # Limita o zoom para não bugar a tela (entre 10% e 500%)
+        novo_zoom = self._mapa_zoom * fator
+        if novo_zoom < 0.1 or novo_zoom > 5.0:
+            return
+
+        self._mapa_zoom = novo_zoom
+
+        # A matemática mágica para manter o ponto do mouse fixo durante o zoom
+        self._mapa_pan_x = event.x - (event.x - self._mapa_pan_x) * fator
+        self._mapa_pan_y = event.y - (event.y - self._mapa_pan_y) * fator
+
+        self._canvas_mapa.scale("all", event.x, event.y, fator, fator)
+
+    def _resetar_visualizacao(self, event=None):
+        """Restaura o zoom e posição para o padrão com duplo clique."""
+        self._mapa_zoom = 1.0
+        self._mapa_pan_x = 0.0
+        self._mapa_pan_y = 0.0
+        self._desenhar_mapa()
     # -- coluna 2: pilhas --------------------------------------------------
 
     def _construir_coluna_pilhas(self, pai) -> None:
@@ -1018,6 +1086,12 @@ class AplicacaoSimulador(tk.Tk):
                 font=self.fonte_mono_pequena,
                 fill=PALETA["tinta_fraca"],
             )
+        if self._mapa_zoom != 1.0:
+            # Escala tudo a partir do ponto superior esquerdo (0,0)
+            canvas.scale("all", 0, 0, self._mapa_zoom, self._mapa_zoom)
+        if self._mapa_pan_x != 0.0 or self._mapa_pan_y != 0.0:
+            # Move para a posição arrastada salva
+            canvas.move("all", self._mapa_pan_x, self._mapa_pan_y)
 
     def _traco(self, canvas, origem, destino, ativo: bool, destacado: bool) -> None:
         if not ativo:
