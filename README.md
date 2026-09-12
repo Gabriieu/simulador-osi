@@ -17,9 +17,10 @@ o tratamento em cada roteador do percurso e o desempilhamento no destino.
 
 ### Caminho mais curto (Windows, sem instalar nada)
 
-1. Baixe o arquivo `SimuladorOSI.exe` da pasta `dist/` (ou da seção *Releases*
-   do repositório).
-2. Dê um duplo clique. A janela do simulador abre em alguns segundos.
+1. Baixe o arquivo `Simulador-OSI-v1.zip` da seção *Releases*
+   do repositório.
+2. Extraia o arquivo.
+2. Dê um duplo clique no executável.
 
 Não é preciso ter Python instalado. Se o Windows exibir o aviso *"O Windows
 protegeu o computador"*, clique em **Mais informações → Executar assim mesmo**:
