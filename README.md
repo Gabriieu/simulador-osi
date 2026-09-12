@@ -188,8 +188,6 @@ python ferramentas/rodar_testes.py
   execução, geração do executável e solução de problemas.
 - [`docs/tutorial_uso.md`](docs/tutorial_uso.md) — passeio pela interface e
   roteiro dos sete casos de demonstração.
-- [`docs/entrega_github.md`](docs/entrega_github.md) — fork, clone, confirmações
-  e solicitação de integração.
 - `docs/exemplo_registro_C2.txt` e `docs/exemplo_registro_C7.txt` — saídas
   completas, geradas pelo próprio programa.
 
