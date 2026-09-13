@@ -334,7 +334,10 @@ class AplicacaoSimulador(tk.Tk):
         self._eficiencias_referencia: Dict[str, object] = {}
 
         # -- estado da visualizacao ----------------------------------------
-        self._tema = "claro"
+        self._tema = self._ler_tema()
+        PALETA.update(TEMA_ESCURO if self._tema == "escuro" else TEMA_CLARO)
+        COR_CAMADA.update(CAMADAS_ESCURO if self._tema == "escuro" else CAMADAS_CLARO)
+        
         self._modo_layout = ""
         self._registro_visivel = True
         self._mapa_zoom = 1.0
@@ -384,6 +387,35 @@ class AplicacaoSimulador(tk.Tk):
     def _encerrar(self) -> None:
         self._pausar()
         self.destroy()
+
+    def _ler_tema(self) -> str:
+        """Lê a preferência de tema de config.toml no diretório do executável."""
+        arquivo = os.path.join(pasta_do_programa(), "config.toml")
+        if not os.path.exists(arquivo):
+            return "claro"
+        try:
+            if sys.version_info >= (3, 11):
+                import tomllib
+                with open(arquivo, "rb") as f:
+                    config = tomllib.load(f)
+                    tema = config.get("interface", {}).get("tema", "claro")
+                    return tema if tema in ("claro", "escuro") else "claro"
+            else:
+                # Fallback sem dependência para Python < 3.11
+                with open(arquivo, "r", encoding="utf-8") as f:
+                    return "escuro" if 'tema = "escuro"' in f.read() else "claro"
+        except Exception:
+            return "claro"
+
+    def _salvar_tema(self) -> None:
+        """Salva a preferência de tema manualmente em formato TOML."""
+        arquivo = os.path.join(pasta_do_programa(), "config.toml")
+        try:
+            with open(arquivo, "w", encoding="utf-8") as f:
+                f.write("[interface]\n")
+                f.write(f'tema = "{self._tema}"\n')
+        except OSError:
+            pass  # Ignora se for somente leitura
 
     # ------------------------------------------------------------------
     # Aparencia
@@ -673,6 +705,7 @@ class AplicacaoSimulador(tk.Tk):
         self._botao_tema.configure(
             text="Tema claro" if self._tema == "escuro" else "Tema escuro"
         )
+        self._salvar_tema()
         self._redesenhar()
 
     def _aplicar_cores_nativas(self) -> None:
@@ -800,8 +833,10 @@ class AplicacaoSimulador(tk.Tk):
             self._alternar_pilha,
         ).pack(side="left")
 
+        # Define qual texto o botão deve exibir ao iniciar
+        texto_botao = "Tema claro" if self._tema == "escuro" else "Tema escuro"
         self._botao_tema = ttk.Button(
-            direita, text="Tema escuro", style="Discreto.TButton", command=self._alternar_tema
+            direita, text=texto_botao, style="Discreto.TButton", command=self._alternar_tema
         )
         self._botao_tema.pack(side="left", padx=(14, 0))
         Dica(self._botao_tema, "Alterna entre o tema claro e o escuro", self.fonte_mini)
@@ -841,7 +876,7 @@ class AplicacaoSimulador(tk.Tk):
         for texto, dica, acao in (
             ("−", "Reduzir", lambda: self._zoom_central(1 / 1.2)),
             ("+", "Ampliar", lambda: self._zoom_central(1.2)),
-            ("⤢", "Ajustar à área visível", self._resetar_visualizacao),
+            ("⛶", "Ajustar à área visível", self._resetar_visualizacao),
         ):
             botao = ttk.Button(cartao.acoes, text=texto, style="Icone.TButton", command=acao)
             botao.pack(side="left", padx=(4, 0))
@@ -1924,7 +1959,6 @@ class AplicacaoSimulador(tk.Tk):
         canvas.create_text(
             largura - 12,
             14,
-            text="roda amplia · arraste move · duplo clique ajusta",
             anchor="e",
             font=self.fonte_mini,
             fill=PALETA["tinta_suave"],
