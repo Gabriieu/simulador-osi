@@ -8,23 +8,31 @@ aparece na tela vem de um objeto ``Evento``.
 Os sete requisitos de visualizacao do enunciado estao distribuidos assim:
 
 ======  ======================================================================
-V1      ``PainelMapa``, com o caminho percorrido em destaque
-V2      ``PainelPilhas``, com a camada ativa em destaque
-V3      ``PainelUnidade``, com os blocos da unidade de dados
-V4      ``PainelEnderecos``, com os dois pares visiveis ao mesmo tempo
-V5      ``BarraDeControle``, com passo a passo, execucao continua e pausa
-V6      ``PainelRegistro``, rolavel e com gravacao em arquivo
-V7      ``BarraSuperior``, com a alternancia entre a pilha OSI e a TCP/IP
+V1      cartao "Mapa da rede", com o caminho percorrido em destaque
+V2      cartao "Pilhas de protocolos", com a camada ativa em destaque
+V3      cartao "Unidade de dados", com os blocos do encapsulamento
+V4      cartao "Enderecos vigentes", com os dois pares visiveis ao mesmo tempo
+V5      barra de controles, com passo a passo, execucao continua e pausa
+V6      cartao "Registro de eventos", rolavel e com gravacao em arquivo
+V7      alternancia entre a pilha OSI e a TCP/IP na barra superior
 ======  ======================================================================
+
+Notas de construcao da camada visual:
+
+* toda a cor sai de ``PALETA``, um dicionario trocado em tempo de execucao
+  pelos temas claro e escuro; nenhum literal de cor aparece nos desenhos;
+* o layout se reorganiza sozinho em dois modos ("amplo" e "compacto"), de
+  forma que a janela continue legivel em telas menores;
+* nenhuma dependencia externa e necessaria: apenas a biblioteca padrao.
 """
 
 from __future__ import annotations
 
 import os
+import platform
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional, Sequence, Tuple
-import ctypes
+from tkinter import filedialog, font as tkfont, messagebox, ttk
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .ambiente import pasta_do_programa, topologia_padrao
 from .camadas import CARGA_POR_SEGMENTO, LIMITE_SEGMENTACAO
@@ -39,39 +47,88 @@ from .pdu import TAMANHO_CABECALHO, TAMANHO_FINALIZADOR
 from .rede import ErroDeTopologiaError, Topologia
 from .registro import Evento, salvar
 
+
+# ---------------------------------------------------------------------------
 # Identidade visual
+# ---------------------------------------------------------------------------
 
-
-PALETA = {
-    "fundo": "#EEF2F5",
+TEMA_CLARO: Dict[str, str] = {
+    "fundo": "#F3F6F9",
+    "fundo_alt": "#E7EDF3",
     "painel": "#FFFFFF",
-    "borda": "#C7D4DD",
-    "tinta": "#10212B",
-    "tinta_fraca": "#5C7183",
+    "painel_alt": "#F5F8FB",
+    "borda": "#DCE4EC",
+    "borda_forte": "#BDCAD6",
+    "tinta": "#0F1E28",
+    "tinta_fraca": "#5A7183",
+    "tinta_suave": "#8DA1B0",
     "estrutura": "#0B6E8F",
-    "estrutura_clara": "#DCEDF4",
-    "ativo": "#E8A317",
-    "ativo_claro": "#FDF1D8",
-    "erro": "#B0392E",
-    "erro_claro": "#F8E3E0",
+    "estrutura_clara": "#DDEDF5",
+    "ativo": "#C87A12",
+    "ativo_claro": "#FCF0DA",
+    "erro": "#BB3626",
+    "erro_claro": "#FAE5E2",
     "entrega": "#2E7D5B",
-    "inativo": "#9FB0BC",
+    "inativo": "#AEBCC8",
     "dados": "#2E7D5B",
-    "dados_claro": "#DFF0E7",
+    "dados_claro": "#E0F1E8",
+    "sombra": "#DAE2EA",
+    "grade": "#EAF0F5",
+    "contraste": "#FFFFFF",
 }
+
+TEMA_ESCURO: Dict[str, str] = {
+    "fundo": "#0D151E",
+    "fundo_alt": "#16222E",
+    "painel": "#15202B",
+    "painel_alt": "#1B2937",
+    "borda": "#25374A",
+    "borda_forte": "#34495F",
+    "tinta": "#E9F1F7",
+    "tinta_fraca": "#9DB2C3",
+    "tinta_suave": "#6E8698",
+    "estrutura": "#3FAED6",
+    "estrutura_clara": "#123B4D",
+    "ativo": "#EFB248",
+    "ativo_claro": "#3C2D12",
+    "erro": "#EF7A6D",
+    "erro_claro": "#3B1D1A",
+    "entrega": "#5FC08D",
+    "inativo": "#49606F",
+    "dados": "#5FC08D",
+    "dados_claro": "#12301F",
+    "sombra": "#090F16",
+    "grade": "#1A2734",
+    "contraste": "#0D151E",
+}
+
+#: Cores vigentes. O dicionario e trocado em bloco na alternancia de tema.
+PALETA: Dict[str, str] = dict(TEMA_CLARO)
 
 #: Tons dos cabecalhos por camada, do topo da pilha para a base.
-COR_CAMADA = {
-    7: "#5B4B8A",
-    6: "#3F6CA8",
+CAMADAS_CLARO: Dict[int, str] = {
+    7: "#6252A4",
+    6: "#3A6BA8",
     5: "#0B6E8F",
-    4: "#0E8577",
-    3: "#37773E",
+    4: "#0D8576",
+    3: "#3C8046",
     2: "#8A6D1F",
-    1: "#6B7C8F",
+    1: "#63788C",
 }
 
-NOME_CAMADA = {
+CAMADAS_ESCURO: Dict[int, str] = {
+    7: "#A697E6",
+    6: "#7DA8E2",
+    5: "#49B6DC",
+    4: "#42C1AD",
+    3: "#7CC787",
+    2: "#DBB65E",
+    1: "#9FB5C7",
+}
+
+COR_CAMADA: Dict[int, str] = dict(CAMADAS_CLARO)
+
+NOME_CAMADA: Dict[int, str] = {
     7: "Aplicação",
     6: "Apresentação",
     5: "Sessão",
@@ -81,42 +138,187 @@ NOME_CAMADA = {
     1: "Física",
 }
 
-VELOCIDADES = (("Lenta", 1200), ("Normal", 500), ("Rápida", 150))
+VELOCIDADES: Tuple[Tuple[str, int], ...] = (
+    ("Lenta", 1200),
+    ("Normal", 500),
+    ("Rápida", 150),
+)
+
+#: Largura a partir da qual as tres colunas cabem lado a lado.
+LARGURA_MODO_AMPLO = 1360
+
+_FAMILIAS_UI = ("Segoe UI", "Inter", "SF Pro Text", "Helvetica Neue", "Ubuntu", "DejaVu Sans")
+_FAMILIAS_MONO = ("Cascadia Mono", "Consolas", "SF Mono", "Menlo", "DejaVu Sans Mono")
+
+_dpi_preparado = False
 
 
-# Janela principal
+# ---------------------------------------------------------------------------
+# Utilitarios de baixo nivel
+# ---------------------------------------------------------------------------
 
 
-class RECT(ctypes.Structure):
-    _fields_ = [
-        ("left", ctypes.c_long),
-        ("top", ctypes.c_long),
-        ("right", ctypes.c_long),
-        ("bottom", ctypes.c_long),
+def preparar_dpi() -> None:
+    """Evita a janela borrada em telas de alta densidade no Windows."""
+    global _dpi_preparado
+    if _dpi_preparado:
+        return
+    _dpi_preparado = True
+    if platform.system() != "Windows":
+        return
+    try:  # pragma: no cover - depende do sistema
+        import ctypes
+
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+def mesclar(cor_a: str, cor_b: str, proporcao: float) -> str:
+    """Retorna a cor entre ``cor_a`` e ``cor_b``; 0 devolve a primeira."""
+    proporcao = min(1.0, max(0.0, proporcao))
+    a = tuple(int(cor_a[i : i + 2], 16) for i in (1, 3, 5))
+    b = tuple(int(cor_b[i : i + 2], 16) for i in (1, 3, 5))
+    canais = (round(x + (y - x) * proporcao) for x, y in zip(a, b))
+    return "#%02X%02X%02X" % tuple(canais)
+
+
+def familia_disponivel(candidatas: Sequence[str], reserva: str) -> str:
+    """Primeira familia tipografica instalada, ou ``reserva``."""
+    try:
+        instaladas = {nome.lower() for nome in tkfont.families()}
+    except tk.TclError:  # pragma: no cover - sem servidor grafico
+        return reserva
+    for nome in candidatas:
+        if nome.lower() in instaladas:
+            return nome
+    return reserva
+
+
+def retangulo(canvas: tk.Canvas, x0, y0, x1, y1, raio: float = 8, **opcoes) -> int:
+    """Desenha um retangulo de cantos arredondados no canvas."""
+    raio = max(0.0, min(raio, abs(x1 - x0) / 2, abs(y1 - y0) / 2))
+    pontos = [
+        x0 + raio, y0,
+        x1 - raio, y0,
+        x1, y0,
+        x1, y0 + raio,
+        x1, y1 - raio,
+        x1, y1,
+        x1 - raio, y1,
+        x0 + raio, y1,
+        x0, y1,
+        x0, y1 - raio,
+        x0, y0 + raio,
+        x0, y0,
     ]
+    return canvas.create_polygon(pontos, smooth=True, **opcoes)
+
+
+class Dica:
+    """Balao de ajuda exibido ao pousar o ponteiro sobre um widget."""
+
+    ATRASO = 550
+
+    def __init__(self, widget: tk.Misc, texto: str, fonte=None) -> None:
+        self._widget = widget
+        self._texto = texto
+        self._fonte = fonte
+        self._balao: Optional[tk.Toplevel] = None
+        self._agendado: Optional[str] = None
+        widget.bind("<Enter>", self._agendar, add="+")
+        widget.bind("<Leave>", self._ocultar, add="+")
+        widget.bind("<ButtonPress>", self._ocultar, add="+")
+
+    def _agendar(self, _evento=None) -> None:
+        self._cancelar()
+        self._agendado = self._widget.after(self.ATRASO, self._exibir)
+
+    def _cancelar(self) -> None:
+        if self._agendado is not None:
+            try:
+                self._widget.after_cancel(self._agendado)
+            except tk.TclError:  # pragma: no cover
+                pass
+            self._agendado = None
+
+    def _exibir(self) -> None:
+        if self._balao is not None or not self._texto:
+            return
+        x = self._widget.winfo_rootx() + 14
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 8
+        self._balao = tk.Toplevel(self._widget)
+        self._balao.wm_overrideredirect(True)
+        self._balao.wm_geometry(f"+{x}+{y}")
+        rotulo = tk.Label(
+            self._balao,
+            text=self._texto,
+            background=PALETA["tinta"],
+            foreground=PALETA["contraste"],
+            padx=9,
+            pady=5,
+            bd=0,
+            justify="left",
+        )
+        if self._fonte:
+            rotulo.configure(font=self._fonte)
+        rotulo.pack()
+
+    def _ocultar(self, _evento=None) -> None:
+        self._cancelar()
+        if self._balao is not None:
+            self._balao.destroy()
+            self._balao = None
+
+
+class Cartao(ttk.Frame):
+    """Painel com cabecalho, area de acoes e corpo.
+
+    O contorno de um pixel vem do proprio quadro externo: ele usa a cor de
+    borda como fundo e um preenchimento de 1, o que dispensa relevos do tema
+    nativo e mantem o mesmo tracado nos dois temas.
+    """
+
+    def __init__(self, pai: tk.Misc, titulo: str, nota: str = "") -> None:
+        super().__init__(pai, style="Cartao.TFrame", padding=1)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        topo = ttk.Frame(self, style="CartaoTopo.TFrame", padding=(14, 9))
+        topo.grid(row=0, column=0, sticky="ew")
+        topo.columnconfigure(1, weight=1)
+
+        ttk.Label(topo, text=titulo, style="CartaoTitulo.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        self.rotulo_nota = ttk.Label(topo, text=nota, style="CartaoNota.TLabel")
+        self.rotulo_nota.grid(row=0, column=1, sticky="w", padx=(10, 0))
+
+        self.acoes = ttk.Frame(topo, style="CartaoTopo.TFrame")
+        self.acoes.grid(row=0, column=2, sticky="e")
+
+        self.corpo = ttk.Frame(self, style="CartaoCorpo.TFrame", padding=(14, 12))
+        self.corpo.grid(row=1, column=0, sticky="nsew")
+
+
+# ---------------------------------------------------------------------------
+# Janela principal
+# ---------------------------------------------------------------------------
 
 
 class AplicacaoSimulador(tk.Tk):
     """Janela principal do simulador."""
 
     def __init__(self, caminho_topologia: Optional[str] = None) -> None:
+        preparar_dpi()
         super().__init__()
         self.title("Simulador do modelo OSI — Comunicação de Dados")
-        SPI_GETWORKAREA = 0x0030
-        rect = RECT()
+        self.minsize(1024, 680)
 
-        ctypes.windll.user32.SystemParametersInfoW(
-            SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
-        )
-
-        width = rect.right - rect.left
-        height = rect.bottom - rect.top
-
-        self.geometry(f"{width}x{height}+{rect.left}+{rect.top}")
-        # self.geometry(f"{screen_width}x{screen_height}+0+0")
-        self.minsize(1120, 720)
-        self.configure(background=PALETA["fundo"])
-
+        # -- estado da simulacao -------------------------------------------
         self._cenarios: List[Cenario] = cenarios_padrao()
         self._topologia: Optional[Topologia] = None
         self._resultado: Optional[ResultadoSimulacao] = None
@@ -128,309 +330,655 @@ class AplicacaoSimulador(tk.Tk):
         self._erro_de_bit: Optional[str] = None
         self._eficiencias_referencia: Dict[str, object] = {}
 
+        # -- estado da visualizacao ----------------------------------------
+        self._tema = "claro"
+        self._modo_layout = ""
+        self._registro_visivel = True
+        self._mapa_zoom = 1.0
+        self._mapa_pan_x = 0.0
+        self._mapa_pan_y = 0.0
+        self._arrasto_x = 0
+        self._arrasto_y = 0
+
+        self._definir_fontes()
         self._preparar_estilos()
         self._construir_layout()
+        self._aplicar_layout("amplo")
         self._registrar_atalhos()
+        self._posicionar_janela()
+
+        self.bind("<Configure>", self._ao_redimensionar)
+        self.protocol("WM_DELETE_WINDOW", self._encerrar)
 
         self._carregar_topologia(caminho_topologia or topologia_padrao(), inicial=True)
 
-    # -- aparencia ---------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Janela
+    # ------------------------------------------------------------------
+
+    def _posicionar_janela(self) -> None:
+        self.update_idletasks()
+        tela_largura = self.winfo_screenwidth()
+        tela_altura = self.winfo_screenheight()
+        largura = min(1680, int(tela_largura * 0.92))
+        altura = min(1000, int(tela_altura * 0.90))
+        x = max(0, (tela_largura - largura) // 2)
+        y = max(0, (tela_altura - altura) // 2 - 16)
+        self.geometry(f"{largura}x{altura}+{x}+{y}")
+        self._maximizar()
+
+    def _maximizar(self) -> None:
+        for tentativa in (
+            lambda: self.state("zoomed"),
+            lambda: self.attributes("-zoomed", True),
+        ):
+            try:  # pragma: no cover - depende do gerenciador de janelas
+                tentativa()
+                return
+            except tk.TclError:
+                continue
+
+    def _encerrar(self) -> None:
+        self._pausar()
+        self.destroy()
+
+    # ------------------------------------------------------------------
+    # Aparencia
+    # ------------------------------------------------------------------
+
+    def _definir_fontes(self) -> None:
+        self.familia_ui = familia_disponivel(_FAMILIAS_UI, "TkDefaultFont")
+        self.familia_mono = familia_disponivel(_FAMILIAS_MONO, "TkFixedFont")
+        self.fonte_base = (self.familia_ui, 10)
+        self.fonte_titulo = (self.familia_ui, 10, "bold")
+        self.fonte_rotulo = (self.familia_ui, 9)
+        self.fonte_mini = (self.familia_ui, 8)
+        self.fonte_marca = (self.familia_ui, 15, "bold")
+        self.fonte_mono = (self.familia_mono, 9)
+        self.fonte_mono_pequena = (self.familia_mono, 8)
 
     def _preparar_estilos(self) -> None:
-        estilo = ttk.Style(self)
+        """Configura o tema ttk a partir de ``PALETA``.
+
+        O metodo e reexecutado na troca de tema: como os widgets referenciam
+        estilos por nome, reconfigurar o estilo repinta a janela inteira sem
+        que nada precise ser reconstruido.
+        """
+        estilo = getattr(self, "_estilo", None) or ttk.Style(self)
+        self._estilo = estilo
         try:
             estilo.theme_use("clam")
         except tk.TclError:  # pragma: no cover - depende do sistema
             pass
-        base = ("Segoe UI", 9)
-        self.fonte_base = base
-        self.fonte_titulo = ("Segoe UI Semibold", 10)
-        self.fonte_cabecalho = ("Segoe UI Semibold", 13)
-        self.fonte_mono = ("Consolas", 9)
-        self.fonte_mono_pequena = ("Consolas", 8)
+
+        self.configure(background=PALETA["fundo"])
 
         estilo.configure(
-            ".", background=PALETA["fundo"], foreground=PALETA["tinta"], font=base
+            ".",
+            background=PALETA["fundo"],
+            foreground=PALETA["tinta"],
+            fieldbackground=PALETA["painel"],
+            font=self.fonte_base,
         )
+
+        # Quadros e cartoes
         estilo.configure("TFrame", background=PALETA["fundo"])
+        estilo.configure("Barra.TFrame", background=PALETA["painel"])
+        estilo.configure("Cartao.TFrame", background=PALETA["borda"])
+        estilo.configure("CartaoTopo.TFrame", background=PALETA["painel_alt"])
+        estilo.configure("CartaoCorpo.TFrame", background=PALETA["painel"])
+        estilo.configure("Segmentado.TFrame", background=PALETA["fundo_alt"])
+        estilo.configure("Estado.TFrame", background=PALETA["fundo_alt"])
+
+        # Textos
+        estilo.configure("TLabel", background=PALETA["fundo"], foreground=PALETA["tinta"])
+        estilo.configure("Barra.TLabel", background=PALETA["painel"], foreground=PALETA["tinta"])
         estilo.configure(
-            "Painel.TFrame", background=PALETA["painel"], relief="solid", borderwidth=1
-        )
-        estilo.configure("Interno.TFrame", background=PALETA["painel"], borderwidth=0)
-        estilo.configure(
-            "TLabel", background=PALETA["fundo"], foreground=PALETA["tinta"]
-        )
-        estilo.configure("Painel.TLabel", background=PALETA["painel"])
-        estilo.configure(
-            "Titulo.TLabel",
+            "Marca.TLabel",
             background=PALETA["painel"],
-            foreground=PALETA["estrutura"],
+            foreground=PALETA["tinta"],
+            font=self.fonte_marca,
+        )
+        estilo.configure(
+            "MarcaNota.TLabel",
+            background=PALETA["painel"],
+            foreground=PALETA["tinta_suave"],
+            font=self.fonte_mini,
+        )
+        estilo.configure(
+            "CartaoTitulo.TLabel",
+            background=PALETA["painel_alt"],
+            foreground=PALETA["tinta"],
             font=self.fonte_titulo,
         )
         estilo.configure(
-            "Cabecalho.TLabel",
-            background=PALETA["fundo"],
-            foreground=PALETA["tinta"],
-            font=self.fonte_cabecalho,
+            "CartaoNota.TLabel",
+            background=PALETA["painel_alt"],
+            foreground=PALETA["tinta_suave"],
+            font=self.fonte_mini,
+        )
+        estilo.configure("Painel.TLabel", background=PALETA["painel"], foreground=PALETA["tinta"])
+        estilo.configure(
+            "Rotulo.TLabel",
+            background=PALETA["painel"],
+            foreground=PALETA["tinta_fraca"],
+            font=self.fonte_rotulo,
         )
         estilo.configure(
             "Fraco.TLabel",
             background=PALETA["painel"],
             foreground=PALETA["tinta_fraca"],
+            font=self.fonte_rotulo,
         )
         estilo.configure(
-            "Mono.TLabel", background=PALETA["painel"], font=self.fonte_mono
-        )
-        estilo.configure("TButton", padding=(10, 5))
-        estilo.configure("Acao.TButton", padding=(12, 6), font=self.fonte_titulo)
-        estilo.configure(
-            "TLabelframe", background=PALETA["painel"], borderwidth=1, relief="solid"
+            "Estado.TLabel",
+            background=PALETA["fundo_alt"],
+            foreground=PALETA["tinta_fraca"],
+            font=self.fonte_rotulo,
         )
         estilo.configure(
-            "TLabelframe.Label",
+            "Passo.TLabel",
             background=PALETA["painel"],
-            foreground=PALETA["estrutura"],
+            foreground=PALETA["tinta"],
+            font=self.fonte_rotulo,
+        )
+
+        # Botoes
+        estilo.configure(
+            "TButton",
+            background=PALETA["painel"],
+            foreground=PALETA["tinta"],
+            bordercolor=PALETA["borda_forte"],
+            lightcolor=PALETA["painel"],
+            darkcolor=PALETA["painel"],
+            focuscolor=PALETA["estrutura"],
+            borderwidth=1,
+            relief="flat",
+            padding=(13, 7),
+            font=self.fonte_base,
+        )
+        estilo.map(
+            "TButton",
+            background=[
+                ("disabled", PALETA["painel"]),
+                ("pressed", PALETA["fundo_alt"]),
+                ("active", PALETA["estrutura_clara"]),
+            ],
+            foreground=[
+                ("disabled", PALETA["tinta_suave"]),
+                ("active", PALETA["estrutura"]),
+            ],
+            bordercolor=[
+                ("disabled", PALETA["borda"]),
+                ("active", PALETA["estrutura"]),
+            ],
+        )
+
+        estilo.configure(
+            "Acao.TButton",
+            background=PALETA["estrutura"],
+            foreground=PALETA["contraste"],
+            bordercolor=PALETA["estrutura"],
+            lightcolor=PALETA["estrutura"],
+            darkcolor=PALETA["estrutura"],
+            padding=(16, 8),
             font=self.fonte_titulo,
         )
-        estilo.configure("TRadiobutton", background=PALETA["painel"])
-        estilo.configure("TCheckbutton", background=PALETA["painel"])
+        estilo.map(
+            "Acao.TButton",
+            background=[
+                ("disabled", PALETA["inativo"]),
+                ("pressed", mesclar(PALETA["estrutura"], PALETA["tinta"], 0.25)),
+                ("active", mesclar(PALETA["estrutura"], PALETA["contraste"], 0.18)),
+            ],
+            foreground=[("disabled", PALETA["painel"])],
+            bordercolor=[("disabled", PALETA["inativo"])],
+        )
 
-    def _painel(self, pai, titulo: str) -> ttk.Labelframe:
-        quadro = ttk.Labelframe(pai, text=titulo, padding=8)
-        return quadro
+        estilo.configure("Icone.TButton", padding=(9, 5), font=self.fonte_base)
+        estilo.configure("Discreto.TButton", padding=(10, 5), font=self.fonte_rotulo)
 
-    # -- layout ------------------------------------------------------------
+        # Controle segmentado (radiobuttons em forma de abas)
+        estilo.configure(
+            "Segmento.Toolbutton",
+            background=PALETA["fundo_alt"],
+            foreground=PALETA["tinta_fraca"],
+            bordercolor=PALETA["fundo_alt"],
+            lightcolor=PALETA["fundo_alt"],
+            darkcolor=PALETA["fundo_alt"],
+            borderwidth=0,
+            relief="flat",
+            padding=(13, 5),
+            font=self.fonte_rotulo,
+            anchor="center",
+        )
+        estilo.map(
+            "Segmento.Toolbutton",
+            background=[
+                ("selected", PALETA["estrutura"]),
+                ("active", PALETA["estrutura_clara"]),
+            ],
+            foreground=[
+                ("selected", PALETA["contraste"]),
+                ("active", PALETA["estrutura"]),
+            ],
+        )
+
+        # Campos
+        for nome in ("TEntry", "TCombobox"):
+            estilo.configure(
+                nome,
+                fieldbackground=PALETA["painel"],
+                background=PALETA["painel"],
+                foreground=PALETA["tinta"],
+                bordercolor=PALETA["borda_forte"],
+                lightcolor=PALETA["borda_forte"],
+                darkcolor=PALETA["borda_forte"],
+                insertcolor=PALETA["tinta"],
+                arrowcolor=PALETA["tinta_fraca"],
+                selectbackground=PALETA["estrutura_clara"],
+                selectforeground=PALETA["tinta"],
+                padding=(8, 6),
+            )
+            estilo.map(
+                nome,
+                bordercolor=[("focus", PALETA["estrutura"]), ("hover", PALETA["estrutura"])],
+                lightcolor=[("focus", PALETA["estrutura"])],
+                darkcolor=[("focus", PALETA["estrutura"])],
+                fieldbackground=[("readonly", PALETA["painel"]), ("disabled", PALETA["fundo_alt"])],
+                foreground=[("disabled", PALETA["tinta_suave"])],
+                arrowcolor=[("active", PALETA["estrutura"])],
+            )
+        self.option_add("*TCombobox*Listbox.background", PALETA["painel"])
+        self.option_add("*TCombobox*Listbox.foreground", PALETA["tinta"])
+        self.option_add("*TCombobox*Listbox.selectBackground", PALETA["estrutura"])
+        self.option_add("*TCombobox*Listbox.selectForeground", PALETA["contraste"])
+
+        # Barras de rolagem e progresso
+        estilo.configure(
+            "TScrollbar",
+            background=PALETA["borda"],
+            troughcolor=PALETA["painel_alt"],
+            bordercolor=PALETA["painel_alt"],
+            arrowcolor=PALETA["tinta_fraca"],
+            borderwidth=0,
+            relief="flat",
+        )
+        estilo.map("TScrollbar", background=[("active", PALETA["borda_forte"])])
+        estilo.configure(
+            "Progresso.Horizontal.TProgressbar",
+            background=PALETA["estrutura"],
+            troughcolor=PALETA["fundo_alt"],
+            bordercolor=PALETA["fundo_alt"],
+            lightcolor=PALETA["estrutura"],
+            darkcolor=PALETA["estrutura"],
+            borderwidth=0,
+            thickness=6,
+        )
+
+        estilo.configure("TSeparator", background=PALETA["borda"])
+        estilo.configure("TRadiobutton", background=PALETA["painel"], foreground=PALETA["tinta"])
+        estilo.configure("TCheckbutton", background=PALETA["painel"], foreground=PALETA["tinta"])
+
+        # Janela de tabelas
+        estilo.configure("TNotebook", background=PALETA["fundo"], borderwidth=0)
+        estilo.configure(
+            "TNotebook.Tab",
+            background=PALETA["fundo_alt"],
+            foreground=PALETA["tinta_fraca"],
+            bordercolor=PALETA["borda"],
+            padding=(16, 8),
+            borderwidth=0,
+            font=self.fonte_rotulo,
+        )
+        estilo.map(
+            "TNotebook.Tab",
+            background=[("selected", PALETA["painel"])],
+            foreground=[("selected", PALETA["estrutura"])],
+        )
+        estilo.configure(
+            "Treeview",
+            background=PALETA["painel"],
+            fieldbackground=PALETA["painel"],
+            foreground=PALETA["tinta"],
+            bordercolor=PALETA["borda"],
+            borderwidth=0,
+            rowheight=27,
+        )
+        estilo.map(
+            "Treeview",
+            background=[("selected", PALETA["estrutura_clara"])],
+            foreground=[("selected", PALETA["tinta"])],
+        )
+        estilo.configure(
+            "Treeview.Heading",
+            background=PALETA["fundo_alt"],
+            foreground=PALETA["tinta_fraca"],
+            relief="flat",
+            padding=(9, 7),
+            font=self.fonte_rotulo,
+        )
+        estilo.map("Treeview.Heading", background=[("active", PALETA["estrutura_clara"])])
+
+    def _alternar_tema(self) -> None:
+        """Troca entre o tema claro e o escuro."""
+        self._tema = "escuro" if self._tema == "claro" else "claro"
+        PALETA.update(TEMA_ESCURO if self._tema == "escuro" else TEMA_CLARO)
+        COR_CAMADA.update(CAMADAS_ESCURO if self._tema == "escuro" else CAMADAS_CLARO)
+        self._preparar_estilos()
+        self._aplicar_cores_nativas()
+        self._botao_tema.configure(
+            text="Tema claro" if self._tema == "escuro" else "Tema escuro"
+        )
+        self._redesenhar()
+
+    def _aplicar_cores_nativas(self) -> None:
+        """Repinta os widgets classicos, que nao seguem os estilos ttk."""
+        for canvas in (
+            self._canvas_mapa,
+            self._canvas_pilhas,
+            self._canvas_unidade,
+            self._canvas_enderecos,
+        ):
+            canvas.configure(background=PALETA["painel"])
+        for divisor in self._divisores:
+            divisor.configure(background=PALETA["borda"])
+        for texto in (self._texto_eficiencia, self._texto_registro):
+            texto.configure(
+                background=PALETA["painel"],
+                foreground=PALETA["tinta"],
+                insertbackground=PALETA["tinta"],
+                selectbackground=PALETA["estrutura_clara"],
+                selectforeground=PALETA["tinta"],
+            )
+        self._texto_registro.tag_configure(
+            "atual", background=PALETA["ativo_claro"], foreground=PALETA["tinta"]
+        )
+        self._texto_registro.tag_configure("alternada", background=PALETA["painel_alt"])
+        self._texto_registro.tag_configure("descarte", foreground=PALETA["erro"])
+        self._texto_registro.tag_configure("futuro", foreground=PALETA["inativo"])
+        self._atualizar_tamanho_mensagem()
+
+    # ------------------------------------------------------------------
+    # Construcao do layout
+    # ------------------------------------------------------------------
 
     def _construir_layout(self) -> None:
+        self._divisores: List[tk.Frame] = []
+
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=3)
-        self.rowconfigure(2, weight=2)
+        self.rowconfigure(2, weight=3)
+        self.rowconfigure(4, weight=2)
 
         self._construir_barra_superior()
 
-        meio = ttk.Frame(self, padding=(10, 0, 10, 0))
-        meio.grid(row=1, column=0, sticky="nsew")
-        meio.columnconfigure(0, weight=34, uniform="col")
-        meio.columnconfigure(1, weight=34, uniform="col")
-        meio.columnconfigure(2, weight=32, uniform="col")
-        meio.rowconfigure(0, weight=1)
+        divisor = tk.Frame(self, height=1, background=PALETA["borda"])
+        divisor.grid(row=1, column=0, sticky="ew")
+        self._divisores.append(divisor)
 
-        self._construir_coluna_mapa(meio)
-        self._construir_coluna_pilhas(meio)
-        self._construir_coluna_dados(meio)
+        self._area_central = ttk.Frame(self, padding=(14, 14, 14, 0))
+        self._area_central.grid(row=2, column=0, sticky="nsew")
 
-        inferior = ttk.Frame(self, padding=(10, 8, 10, 10))
-        inferior.grid(row=2, column=0, sticky="nsew")
-        inferior.columnconfigure(0, weight=1)
-        inferior.rowconfigure(1, weight=1)
-        self._construir_controles(inferior)
-        self._construir_registro(inferior)
+        self._coluna_mapa = ttk.Frame(self._area_central)
+        self._coluna_pilhas = ttk.Frame(self._area_central)
+        self._coluna_dados = ttk.Frame(self._area_central)
 
-        self._barra_estado = ttk.Label(
-            self, text="Pronto.", anchor="w", padding=(12, 4), style="TLabel"
-        )
-        self._barra_estado.grid(row=3, column=0, sticky="ew")
+        self._construir_coluna_mapa()
+        self._construir_coluna_pilhas()
+        self._construir_coluna_dados()
+        self._construir_controles()
+        self._construir_registro()
+        self._construir_barra_estado()
+
+    # -- barra superior ----------------------------------------------------
 
     def _construir_barra_superior(self) -> None:
-        barra = ttk.Frame(self, padding=(10, 10, 10, 6))
+        barra = ttk.Frame(self, style="Barra.TFrame", padding=(16, 12))
         barra.grid(row=0, column=0, sticky="ew")
-        barra.columnconfigure(6, weight=1)
+        barra.columnconfigure(5, weight=1)
 
-        ttk.Label(barra, text="Simulador do modelo OSI", style="Cabecalho.TLabel").grid(
-            row=0, column=0, sticky="w", padx=(0, 18)
+        marca = ttk.Frame(barra, style="Barra.TFrame")
+        marca.grid(row=0, column=0, sticky="w", padx=(0, 22))
+        ttk.Label(marca, text="Simulador do modelo OSI", style="Marca.TLabel").grid(
+            row=0, column=0, sticky="w"
         )
+        self._rotulo_subtitulo = ttk.Label(
+            marca,
+            text="Encapsulamento, endereçamento e encaminhamento, passo a passo",
+            style="MarcaNota.TLabel",
+        )
+        self._rotulo_subtitulo.grid(row=1, column=0, sticky="w")
 
-        ttk.Label(barra, text="Cenário").grid(row=0, column=1, sticky="w", padx=(0, 4))
+        seletor = ttk.Frame(barra, style="Barra.TFrame")
+        seletor.grid(row=0, column=1, sticky="w")
+        ttk.Label(seletor, text="Cenário", style="Barra.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(0, 8)
+        )
         self._var_cenario = tk.StringVar()
         self._combo_cenario = ttk.Combobox(
-            barra,
+            seletor,
             textvariable=self._var_cenario,
             state="readonly",
-            width=42,
+            width=40,
             values=[c.nome_exibicao for c in self._cenarios],
         )
-        self._combo_cenario.grid(row=0, column=2, sticky="w")
-        self._combo_cenario.current(1)
+        self._combo_cenario.grid(row=0, column=1, sticky="w")
+        if len(self._cenarios) > 1:
+            self._combo_cenario.current(1)
+        elif self._cenarios:
+            self._combo_cenario.current(0)
         self._combo_cenario.bind(
             "<<ComboboxSelected>>", lambda _e: self._carregar_cenario()
         )
 
-        ttk.Button(barra, text="Carregar cenário", command=self._carregar_cenario).grid(
-            row=0, column=3, padx=6
+        botao_topologia = ttk.Button(
+            barra, text="Abrir topologia", command=self._escolher_topologia
         )
-        ttk.Button(
-            barra, text="Abrir topologia…", command=self._escolher_topologia
-        ).grid(row=0, column=4, padx=(0, 6))
-        ttk.Button(
-            barra, text="Tabelas de encaminhamento", command=self._mostrar_tabelas
-        ).grid(row=0, column=5)
+        botao_topologia.grid(row=0, column=2, padx=(12, 8))
+        Dica(botao_topologia, "Carrega outro arquivo JSON de topologia", self.fonte_mini)
 
+        botao_tabelas = ttk.Button(
+            barra, text="Tabelas de encaminhamento", command=self._mostrar_tabelas
+        )
+        botao_tabelas.grid(row=0, column=3)
+        Dica(botao_tabelas, "Rotas calculadas para cada roteador", self.fonte_mini)
+
+        direita = ttk.Frame(barra, style="Barra.TFrame")
+        direita.grid(row=0, column=6, sticky="e")
+
+        ttk.Label(direita, text="Exibir pilha", style="Barra.TLabel").pack(
+            side="left", padx=(0, 8)
+        )
         self._var_pilha = tk.StringVar(value="OSI")
-        alternancia = ttk.Frame(barra)
-        alternancia.grid(row=0, column=7, sticky="e")
-        ttk.Label(alternancia, text="Exibir pilha").pack(side="left", padx=(0, 6))
-        for rotulo in ("OSI", "TCP/IP"):
+        self._segmentado(
+            direita,
+            self._var_pilha,
+            (("OSI", "OSI"), ("TCP/IP", "TCP/IP")),
+            self._alternar_pilha,
+        ).pack(side="left")
+
+        self._botao_tema = ttk.Button(
+            direita, text="Tema escuro", style="Discreto.TButton", command=self._alternar_tema
+        )
+        self._botao_tema.pack(side="left", padx=(14, 0))
+        Dica(self._botao_tema, "Alterna entre o tema claro e o escuro", self.fonte_mini)
+
+    def _segmentado(
+        self,
+        pai: tk.Misc,
+        variavel: tk.Variable,
+        opcoes: Sequence[Tuple[str, object]],
+        comando: Optional[Callable[[], None]] = None,
+    ) -> ttk.Frame:
+        """Controle segmentado: um grupo de opcoes em forma de abas."""
+        caixa = ttk.Frame(pai, style="Segmentado.TFrame", padding=2)
+        for texto, valor in opcoes:
             ttk.Radiobutton(
-                alternancia,
-                text=rotulo,
-                value=rotulo,
-                variable=self._var_pilha,
-                command=self._alternar_pilha,
+                caixa,
+                text=texto,
+                value=valor,
+                variable=variavel,
+                command=comando,
+                style="Segmento.Toolbutton",
             ).pack(side="left")
+        return caixa
 
     # -- coluna 1: mapa e falhas ------------------------------------------
 
-    def _construir_coluna_mapa(self, pai) -> None:
-        coluna = ttk.Frame(pai)
-        coluna.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+    def _construir_coluna_mapa(self) -> None:
+        coluna = self._coluna_mapa
         coluna.columnconfigure(0, weight=1)
         coluna.rowconfigure(0, weight=1)
 
-        painel = self._painel(coluna, "Mapa da rede")
-        painel.grid(row=0, column=0, sticky="nsew")
-        painel.columnconfigure(0, weight=1)
-        painel.rowconfigure(0, weight=1)
+        cartao = Cartao(coluna, "Mapa da rede", "caminho do quadro em destaque")
+        cartao.grid(row=0, column=0, sticky="nsew")
+        cartao.corpo.columnconfigure(0, weight=1)
+        cartao.corpo.rowconfigure(0, weight=1)
+
+        for texto, dica, acao in (
+            ("−", "Reduzir", lambda: self._zoom_central(1 / 1.2)),
+            ("+", "Ampliar", lambda: self._zoom_central(1.2)),
+            ("⤢", "Ajustar à área visível", self._resetar_visualizacao),
+        ):
+            botao = ttk.Button(cartao.acoes, text=texto, style="Icone.TButton", command=acao)
+            botao.pack(side="left", padx=(4, 0))
+            Dica(botao, dica, self.fonte_mini)
+
         self._canvas_mapa = tk.Canvas(
-            painel, background=PALETA["painel"], highlightthickness=0, height=300
+            cartao.corpo,
+            background=PALETA["painel"],
+            highlightthickness=0,
+            height=280,
+            cursor="hand2",
         )
         self._canvas_mapa.grid(row=0, column=0, sticky="nsew")
         self._canvas_mapa.bind("<Configure>", lambda _e: self._desenhar_mapa())
-
-        self._canvas_mapa = tk.Canvas(
-            painel, background=PALETA["painel"], highlightthickness=0, height=300
-        )
-        self._canvas_mapa.grid(row=0, column=0, sticky="nsew")
-        self._canvas_mapa.bind("<Configure>", lambda _e: self._desenhar_mapa())
-
-        # --- VARIÁVEIS DE ESTADO DE VISUALIZAÇÃO ---
-        self._mapa_zoom = 1.0
-        self._mapa_pan_x = 0.0
-        self._mapa_pan_y = 0.0
-        self._drag_start_x = 0
-        self._drag_start_y = 0
-
-        # --- BINDS DE ZOOM E ARRASTO ---
         self._canvas_mapa.bind("<ButtonPress-1>", self._iniciar_arrasto)
         self._canvas_mapa.bind("<B1-Motion>", self._arrastar)
+        self._canvas_mapa.bind("<ButtonRelease-1>", self._encerrar_arrasto)
+        self._canvas_mapa.bind("<Double-Button-1>", lambda _e: self._resetar_visualizacao())
         self._canvas_mapa.bind("<MouseWheel>", self._aplicar_zoom)
         self._canvas_mapa.bind("<Button-4>", self._aplicar_zoom)
         self._canvas_mapa.bind("<Button-5>", self._aplicar_zoom)
-        self._canvas_mapa.bind("<Double-Button-1>", self._resetar_visualizacao)
 
-        falhas = self._painel(coluna, "Provocar falhas")
-        falhas.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        falhas.columnconfigure(1, weight=1)
+        falhas = Cartao(coluna, "Provocar falhas", "para observar o comportamento da rede")
+        falhas.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        corpo = falhas.corpo
+        corpo.columnconfigure(0, weight=1)
 
-        ttk.Label(falhas, text="Enlace", style="Painel.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
         self._var_enlace = tk.StringVar()
+        ttk.Label(corpo, text="Enlace", style="Rotulo.TLabel").grid(row=0, column=0, sticky="w")
         self._combo_enlace = ttk.Combobox(
-            falhas, textvariable=self._var_enlace, state="readonly", width=26
+            corpo, textvariable=self._var_enlace, state="readonly"
         )
-        self._combo_enlace.grid(row=0, column=1, sticky="ew", padx=6)
+        self._combo_enlace.grid(row=1, column=0, sticky="ew", pady=(3, 10))
 
-        botoes = ttk.Frame(falhas, style="Interno.TFrame")
-        botoes.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        botoes = ttk.Frame(corpo, style="CartaoCorpo.TFrame")
+        botoes.grid(row=2, column=0, sticky="ew")
         ttk.Button(botoes, text="Derrubar enlace", command=self._derrubar_enlace).pack(
             side="left"
         )
         ttk.Button(botoes, text="Injetar erro de bit", command=self._injetar_erro).pack(
-            side="left", padx=6
+            side="left", padx=8
         )
         ttk.Button(botoes, text="Restaurar rede", command=self._restaurar_rede).pack(
             side="left"
         )
 
         self._rotulo_falhas = ttk.Label(
-            falhas,
+            corpo,
             text="Rede íntegra.",
             style="Fraco.TLabel",
-            wraplength=340,
+            wraplength=360,
             justify="left",
         )
-        self._rotulo_falhas.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self._rotulo_falhas.grid(row=3, column=0, sticky="w", pady=(10, 0))
 
-    def _iniciar_arrasto(self, event):
-        """Salva a posição inicial do mouse ao clicar."""
-        self._drag_start_x = event.x
-        self._drag_start_y = event.y
-
-    def _arrastar(self, event):
-        """Calcula a diferença do movimento e move os elementos."""
-        dx = event.x - self._drag_start_x
-        dy = event.y - self._drag_start_y
-        self._drag_start_x = event.x
-        self._drag_start_y = event.y
-
-        # Atualiza a posição global do mapa
-        self._mapa_pan_x += dx
-        self._mapa_pan_y += dy
-        
-        # Move visualmente os itens já renderizados
-        self._canvas_mapa.move("all", dx, dy)
-
-    def _aplicar_zoom(self, event):
-        """Calcula o novo fator de zoom e ajusta a posição para focar no mouse."""
-        if event.num == 4 or event.delta > 0:
-            fator = 1.1
-        elif event.num == 5 or event.delta < 0:
-            fator = 0.9
-        else:
-            return
-
-        # Limita o zoom para não bugar a tela (entre 10% e 500%)
-        novo_zoom = self._mapa_zoom * fator
-        if novo_zoom < 0.1 or novo_zoom > 5.0:
-            return
-
-        self._mapa_zoom = novo_zoom
-
-        # A matemática mágica para manter o ponto do mouse fixo durante o zoom
-        self._mapa_pan_x = event.x - (event.x - self._mapa_pan_x) * fator
-        self._mapa_pan_y = event.y - (event.y - self._mapa_pan_y) * fator
-
-        self._canvas_mapa.scale("all", event.x, event.y, fator, fator)
-
-    def _resetar_visualizacao(self, event=None):
-        """Restaura o zoom e posição para o padrão com duplo clique."""
-        self._mapa_zoom = 1.0
-        self._mapa_pan_x = 0.0
-        self._mapa_pan_y = 0.0
-        self._desenhar_mapa()
     # -- coluna 2: pilhas --------------------------------------------------
 
-    def _construir_coluna_pilhas(self, pai) -> None:
-        painel = self._painel(pai, "Pilhas dos dispositivos")
-        painel.grid(row=0, column=1, sticky="nsew", padx=(0, 8))
-        painel.columnconfigure(0, weight=1)
-        painel.rowconfigure(0, weight=1)
+    def _construir_coluna_pilhas(self) -> None:
+        coluna = self._coluna_pilhas
+        coluna.columnconfigure(0, weight=1)
+        coluna.rowconfigure(0, weight=1)
+
+        cartao = Cartao(coluna, "Pilhas de protocolos", "camada ativa em destaque")
+        cartao.grid(row=0, column=0, sticky="nsew")
+        self._cartao_pilhas = cartao
+        cartao.corpo.columnconfigure(0, weight=1)
+        cartao.corpo.rowconfigure(0, weight=1)
+
         self._canvas_pilhas = tk.Canvas(
-            painel, background=PALETA["painel"], highlightthickness=0
+            cartao.corpo, background=PALETA["painel"], highlightthickness=0
         )
         self._canvas_pilhas.grid(row=0, column=0, sticky="nsew")
         self._canvas_pilhas.bind("<Configure>", lambda _e: self._desenhar_pilhas())
+
+        rodape = ttk.Frame(cartao.corpo, style="CartaoCorpo.TFrame")
+        rodape.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        rodape.columnconfigure(0, weight=1)
         self._rotulo_passo = ttk.Label(
-            painel,
-            text="Carregue um cenário para começar.",
-            style="Fraco.TLabel",
-            wraplength=420,
+            rodape,
+            text="Carregue um cenário e pressione Passo para começar.",
+            style="Passo.TLabel",
+            wraplength=430,
             justify="left",
         )
-        self._rotulo_passo.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self._rotulo_passo.grid(row=0, column=0, sticky="w")
 
     # -- coluna 3: parametros, unidade, enderecos, eficiencia --------------
 
-    def _construir_coluna_dados(self, pai) -> None:
-        coluna = ttk.Frame(pai)
-        coluna.grid(row=0, column=2, sticky="nsew")
-        coluna.columnconfigure(0, weight=1)
-        coluna.rowconfigure(3, weight=1)
+    def _construir_coluna_dados(self) -> None:
+        coluna = self._coluna_dados
 
-        parametros = self._painel(coluna, "Origem, destino e mensagem")
-        parametros.grid(row=0, column=0, sticky="ew")
-        parametros.columnconfigure(1, weight=1)
-        parametros.columnconfigure(3, weight=1)
+        self._cartao_parametros = Cartao(coluna, "Parâmetros da simulação")
+        self._cartao_unidade = Cartao(coluna, "Unidade de dados", "cabeçalhos e carga útil")
+        self._cartao_enderecos = Cartao(coluna, "Endereços vigentes", "lógicos e físicos")
+        self._cartao_eficiencia = Cartao(coluna, "Custo do empilhamento")
+
+        self._construir_formulario(self._cartao_parametros.corpo)
+
+        corpo_unidade = self._cartao_unidade.corpo
+        corpo_unidade.columnconfigure(0, weight=1)
+        corpo_unidade.rowconfigure(0, weight=1)
+        self._canvas_unidade = tk.Canvas(
+            corpo_unidade, background=PALETA["painel"], highlightthickness=0, height=110
+        )
+        self._canvas_unidade.grid(row=0, column=0, sticky="nsew")
+        self._canvas_unidade.bind("<Configure>", lambda _e: self._desenhar_unidade())
+
+        corpo_enderecos = self._cartao_enderecos.corpo
+        corpo_enderecos.columnconfigure(0, weight=1)
+        corpo_enderecos.rowconfigure(0, weight=1)
+        self._canvas_enderecos = tk.Canvas(
+            corpo_enderecos, background=PALETA["painel"], highlightthickness=0, height=118
+        )
+        self._canvas_enderecos.grid(row=0, column=0, sticky="nsew")
+        self._canvas_enderecos.bind("<Configure>", lambda _e: self._desenhar_enderecos())
+
+        corpo_eficiencia = self._cartao_eficiencia.corpo
+        corpo_eficiencia.columnconfigure(0, weight=1)
+        corpo_eficiencia.rowconfigure(0, weight=1)
+        self._texto_eficiencia = tk.Text(
+            corpo_eficiencia,
+            height=9,
+            font=self.fonte_mono,
+            background=PALETA["painel"],
+            foreground=PALETA["tinta"],
+            relief="flat",
+            wrap="none",
+            borderwidth=0,
+            state="disabled",
+        )
+        self._texto_eficiencia.grid(row=0, column=0, sticky="nsew")
+        rolagem = ttk.Scrollbar(
+            corpo_eficiencia, orient="vertical", command=self._texto_eficiencia.yview
+        )
+        rolagem.grid(row=0, column=1, sticky="ns")
+        self._texto_eficiencia.configure(yscrollcommand=rolagem.set)
+
+    def _construir_formulario(self, corpo: ttk.Frame) -> None:
+        corpo.columnconfigure(0, weight=1, uniform="campos")
+        corpo.columnconfigure(1, weight=1, uniform="campos")
 
         self._var_origem = tk.StringVar()
         self._var_destino = tk.StringVar()
@@ -440,178 +988,181 @@ class AplicacaoSimulador(tk.Tk):
         self._var_porta_destino = tk.StringVar(value="443")
         self._var_mensagem = tk.StringVar()
 
-        ttk.Label(parametros, text="Origem", style="Painel.TLabel").grid(
-            row=0, column=0, sticky="w"
+        self._combo_origem = self._campo(
+            corpo,
+            "Computador de origem",
+            0,
+            0,
+            lambda pai: ttk.Combobox(pai, textvariable=self._var_origem, state="readonly"),
         )
-        self._combo_origem = ttk.Combobox(
-            parametros, textvariable=self._var_origem, state="readonly", width=10
+        self._combo_destino = self._campo(
+            corpo,
+            "Endereço lógico de destino",
+            0,
+            1,
+            lambda pai: ttk.Combobox(pai, textvariable=self._var_destino),
         )
-        self._combo_origem.grid(row=0, column=1, sticky="ew", padx=(4, 10))
-
-        ttk.Label(parametros, text="Destino", style="Painel.TLabel").grid(
-            row=0, column=2, sticky="w"
+        self._campo(
+            corpo,
+            "Processo de origem",
+            1,
+            0,
+            lambda pai: ttk.Entry(pai, textvariable=self._var_processo_origem),
         )
-        self._combo_destino = ttk.Combobox(
-            parametros, textvariable=self._var_destino, width=16
+        self._campo(
+            corpo,
+            "Processo de destino",
+            1,
+            1,
+            lambda pai: ttk.Entry(pai, textvariable=self._var_processo_destino),
         )
-        self._combo_destino.grid(row=0, column=3, sticky="ew", padx=(4, 0))
-
-        ttk.Label(parametros, text="Processo", style="Painel.TLabel").grid(
-            row=1, column=0, sticky="w", pady=(6, 0)
+        self._campo(
+            corpo,
+            "Porta de origem",
+            2,
+            0,
+            lambda pai: ttk.Entry(pai, textvariable=self._var_porta_origem),
         )
-        ttk.Entry(parametros, textvariable=self._var_processo_origem).grid(
-            row=1, column=1, sticky="ew", padx=(4, 10), pady=(6, 0)
+        self._campo(
+            corpo,
+            "Porta de destino",
+            2,
+            1,
+            lambda pai: ttk.Entry(pai, textvariable=self._var_porta_destino),
         )
-        ttk.Label(parametros, text="Processo destino", style="Painel.TLabel").grid(
-            row=1, column=2, sticky="w", pady=(6, 0)
-        )
-        ttk.Entry(parametros, textvariable=self._var_processo_destino).grid(
-            row=1, column=3, sticky="ew", padx=(4, 0), pady=(6, 0)
-        )
-
-        ttk.Label(parametros, text="Porta origem", style="Painel.TLabel").grid(
-            row=2, column=0, sticky="w", pady=(6, 0)
-        )
-        ttk.Entry(parametros, textvariable=self._var_porta_origem).grid(
-            row=2, column=1, sticky="ew", padx=(4, 10), pady=(6, 0)
-        )
-        ttk.Label(parametros, text="Porta destino", style="Painel.TLabel").grid(
-            row=2, column=2, sticky="w", pady=(6, 0)
-        )
-        ttk.Entry(parametros, textvariable=self._var_porta_destino).grid(
-            row=2, column=3, sticky="ew", padx=(4, 0), pady=(6, 0)
-        )
-
-        ttk.Label(parametros, text="Mensagem", style="Painel.TLabel").grid(
-            row=3, column=0, sticky="w", pady=(6, 0)
-        )
-        entrada = ttk.Entry(parametros, textvariable=self._var_mensagem)
-        entrada.grid(
-            row=3, column=1, columnspan=3, sticky="ew", padx=(4, 0), pady=(6, 0)
-        )
-
-        self._rotulo_tamanho = ttk.Label(parametros, text="", style="Fraco.TLabel")
-        self._rotulo_tamanho.grid(
-            row=4, column=0, columnspan=3, sticky="w", pady=(6, 0)
-        )
-        self._var_mensagem.trace_add(
-            "write", lambda *_a: self._atualizar_tamanho_mensagem()
+        self._campo(
+            corpo,
+            "Mensagem",
+            3,
+            0,
+            lambda pai: ttk.Entry(pai, textvariable=self._var_mensagem),
+            colspan=2,
         )
 
+        rodape = ttk.Frame(corpo, style="CartaoCorpo.TFrame")
+        rodape.grid(row=4, column=0, columnspan=2, sticky="ew")
+        rodape.columnconfigure(0, weight=1)
+        self._rotulo_tamanho = ttk.Label(rodape, text="", style="Fraco.TLabel")
+        self._rotulo_tamanho.grid(row=0, column=0, sticky="w")
         ttk.Button(
-            parametros, text="Simular", style="Acao.TButton", command=self._simular
-        ).grid(row=4, column=3, sticky="e", pady=(6, 0))
+            rodape, text="Simular", style="Acao.TButton", command=self._simular
+        ).grid(row=0, column=1, sticky="e")
 
-        unidade = self._painel(coluna, "Unidade de dados")
-        unidade.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        unidade.columnconfigure(0, weight=1)
-        self._canvas_unidade = tk.Canvas(
-            unidade, background=PALETA["painel"], highlightthickness=0, height=104
-        )
-        self._canvas_unidade.grid(row=0, column=0, sticky="ew")
-        self._canvas_unidade.bind("<Configure>", lambda _e: self._desenhar_unidade())
+        self._var_mensagem.trace_add("write", lambda *_a: self._atualizar_tamanho_mensagem())
 
-        enderecos = self._painel(coluna, "Endereços vigentes")
-        enderecos.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        enderecos.columnconfigure(0, weight=1)
-        enderecos.columnconfigure(1, weight=1)
-        self._canvas_enderecos = tk.Canvas(
-            enderecos, background=PALETA["painel"], highlightthickness=0, height=112
+    def _campo(
+        self,
+        pai: ttk.Frame,
+        rotulo: str,
+        linha: int,
+        coluna: int,
+        criar: Callable[[tk.Misc], tk.Widget],
+        colspan: int = 1,
+    ) -> tk.Widget:
+        """Rotulo acima do campo: legivel mesmo em colunas estreitas."""
+        grupo = ttk.Frame(pai, style="CartaoCorpo.TFrame")
+        grupo.grid(
+            row=linha,
+            column=coluna,
+            columnspan=colspan,
+            sticky="ew",
+            padx=(0, 6) if coluna == 0 and colspan == 1 else (6 if coluna else 0, 0),
+            pady=(0, 10),
         )
-        self._canvas_enderecos.grid(row=0, column=0, columnspan=2, sticky="ew")
-        self._canvas_enderecos.bind(
-            "<Configure>", lambda _e: self._desenhar_enderecos()
-        )
-
-        eficiencia = self._painel(coluna, "Custo do empilhamento")
-        eficiencia.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
-        eficiencia.columnconfigure(0, weight=1)
-        eficiencia.rowconfigure(0, weight=1)
-        self._texto_eficiencia = tk.Text(
-            eficiencia,
-            height=12,
-            font=self.fonte_mono,
-            background=PALETA["painel"],
-            foreground=PALETA["tinta"],
-            relief="flat",
-            wrap="none",
-            state="disabled",
-        )
-        self._texto_eficiencia.grid(row=0, column=0, sticky="nsew")
-        rolagem = ttk.Scrollbar(
-            eficiencia, orient="vertical", command=self._texto_eficiencia.yview
-        )
-        rolagem.grid(row=0, column=1, sticky="ns")
-        self._texto_eficiencia.configure(yscrollcommand=rolagem.set)
+        grupo.columnconfigure(0, weight=1)
+        ttk.Label(grupo, text=rotulo, style="Rotulo.TLabel").grid(row=0, column=0, sticky="w")
+        widget = criar(grupo)
+        widget.grid(row=1, column=0, sticky="ew", pady=(3, 0))
+        widget.bind("<Return>", lambda _e: self._simular())
+        return widget
 
     # -- controles e registro ---------------------------------------------
 
-    def _construir_controles(self, pai) -> None:
-        barra = ttk.Frame(pai, style="Painel.TFrame", padding=8)
-        barra.grid(row=0, column=0, sticky="ew")
-        barra.columnconfigure(8, weight=1)
+    def _construir_controles(self) -> None:
+        barra = ttk.Frame(self, style="Barra.TFrame", padding=(16, 10))
+        barra.grid(row=3, column=0, sticky="ew", pady=(14, 0))
+        barra.columnconfigure(7, weight=1)
 
-        self._botao_passo = ttk.Button(barra, text="Passo", command=self._passo)
-        self._botao_passo.grid(row=0, column=0)
-        self._botao_executar = ttk.Button(
-            barra, text="Executar", command=self._executar
+        transporte = ttk.Frame(barra, style="Barra.TFrame")
+        transporte.grid(row=0, column=0, sticky="w")
+        self._botao_passo = ttk.Button(
+            transporte, text="Passo", style="Acao.TButton", command=self._passo
         )
-        self._botao_executar.grid(row=0, column=1, padx=6)
-        self._botao_pausar = ttk.Button(barra, text="Pausar", command=self._pausar)
-        self._botao_pausar.grid(row=0, column=2)
-        ttk.Button(barra, text="Reiniciar", command=self._reiniciar).grid(
-            row=0, column=3, padx=6
-        )
+        self._botao_passo.pack(side="left")
+        Dica(self._botao_passo, "Avança um evento · barra de espaço", self.fonte_mini)
 
-        ttk.Separator(barra, orient="vertical").grid(
-            row=0, column=4, sticky="ns", padx=10
-        )
+        self._botao_executar = ttk.Button(transporte, text="Executar", command=self._executar)
+        self._botao_executar.pack(side="left", padx=8)
+        Dica(self._botao_executar, "Execução contínua · Enter", self.fonte_mini)
 
-        ttk.Label(barra, text="Velocidade", style="Painel.TLabel").grid(row=0, column=5)
+        self._botao_pausar = ttk.Button(transporte, text="Pausar", command=self._pausar)
+        self._botao_pausar.pack(side="left")
+        Dica(self._botao_pausar, "Interrompe a execução · Esc", self.fonte_mini)
+
+        self._botao_reiniciar = ttk.Button(
+            transporte, text="Reiniciar", command=self._reiniciar
+        )
+        self._botao_reiniciar.pack(side="left", padx=8)
+        Dica(self._botao_reiniciar, "Volta ao passo 0 · Ctrl+R", self.fonte_mini)
+
+        ttk.Separator(barra, orient="vertical").grid(row=0, column=1, sticky="ns", padx=14)
+
+        ttk.Label(barra, text="Velocidade", style="Barra.TLabel").grid(row=0, column=2)
         self._var_velocidade = tk.IntVar(value=VELOCIDADES[1][1])
-        grupo = ttk.Frame(barra, style="Interno.TFrame")
-        grupo.grid(row=0, column=6, padx=(6, 0))
-        for rotulo, intervalo in VELOCIDADES:
-            ttk.Radiobutton(
-                grupo, text=rotulo, value=intervalo, variable=self._var_velocidade
-            ).pack(side="left")
-
-        ttk.Separator(barra, orient="vertical").grid(
-            row=0, column=7, sticky="ns", padx=10
+        self._segmentado(barra, self._var_velocidade, VELOCIDADES).grid(
+            row=0, column=3, padx=(10, 0)
         )
 
-        self._rotulo_progresso = ttk.Label(
-            barra, text="Passo 0 de 0", style="Painel.TLabel"
-        )
-        self._rotulo_progresso.grid(row=0, column=8, sticky="w")
+        ttk.Separator(barra, orient="vertical").grid(row=0, column=4, sticky="ns", padx=14)
 
-        ttk.Button(barra, text="Salvar registro…", command=self._salvar_registro).grid(
-            row=0, column=9, sticky="e"
+        self._rotulo_progresso = ttk.Label(barra, text="Passo 0 de 0", style="Barra.TLabel")
+        self._rotulo_progresso.grid(row=0, column=5, sticky="w")
+        self._progresso = ttk.Progressbar(
+            barra,
+            style="Progresso.Horizontal.TProgressbar",
+            mode="determinate",
+            length=200,
+            maximum=1,
+        )
+        self._progresso.grid(row=0, column=6, sticky="w", padx=(12, 0))
+
+        acoes = ttk.Frame(barra, style="Barra.TFrame")
+        acoes.grid(row=0, column=8, sticky="e")
+        self._botao_registro = ttk.Button(
+            acoes, text="Ocultar registro", style="Discreto.TButton", command=self._alternar_registro
+        )
+        self._botao_registro.pack(side="left", padx=(0, 8))
+        ttk.Button(acoes, text="Salvar registro", command=self._salvar_registro).pack(
+            side="left"
         )
 
-    def _construir_registro(self, pai) -> None:
-        painel = self._painel(pai, "Registro de eventos")
-        painel.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
-        painel.columnconfigure(0, weight=1)
-        painel.rowconfigure(0, weight=1)
+    def _construir_registro(self) -> None:
+        self._cartao_registro = Cartao(
+            self, "Registro de eventos", "uma linha por evento do encapsulamento"
+        )
+        self._cartao_registro.grid(row=4, column=0, sticky="nsew", padx=14, pady=(12, 0))
+        corpo = self._cartao_registro.corpo
+        corpo.columnconfigure(0, weight=1)
+        corpo.rowconfigure(0, weight=1)
 
         self._texto_registro = tk.Text(
-            painel,
+            corpo,
             font=self.fonte_mono_pequena,
-            background="#FBFDFE",
+            background=PALETA["painel"],
             foreground=PALETA["tinta"],
             relief="flat",
+            borderwidth=0,
             wrap="none",
-            height=10,
+            height=8,
+            spacing1=2,
+            spacing3=2,
             state="disabled",
         )
         self._texto_registro.grid(row=0, column=0, sticky="nsew")
-        vertical = ttk.Scrollbar(
-            painel, orient="vertical", command=self._texto_registro.yview
-        )
+        vertical = ttk.Scrollbar(corpo, orient="vertical", command=self._texto_registro.yview)
         vertical.grid(row=0, column=1, sticky="ns")
         horizontal = ttk.Scrollbar(
-            painel, orient="horizontal", command=self._texto_registro.xview
+            corpo, orient="horizontal", command=self._texto_registro.xview
         )
         horizontal.grid(row=1, column=0, sticky="ew")
         self._texto_registro.configure(
@@ -620,15 +1171,123 @@ class AplicacaoSimulador(tk.Tk):
         self._texto_registro.tag_configure(
             "atual", background=PALETA["ativo_claro"], foreground=PALETA["tinta"]
         )
+        self._texto_registro.tag_configure("alternada", background=PALETA["painel_alt"])
         self._texto_registro.tag_configure("descarte", foreground=PALETA["erro"])
         self._texto_registro.tag_configure("futuro", foreground=PALETA["inativo"])
 
+    def _construir_barra_estado(self) -> None:
+        barra = ttk.Frame(self, style="Estado.TFrame", padding=(16, 7))
+        barra.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+        barra.columnconfigure(2, weight=1)
+
+        self._ponto_estado = ttk.Label(
+            barra, text="●", style="Estado.TLabel", foreground=PALETA["entrega"]
+        )
+        self._ponto_estado.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self._barra_estado = ttk.Label(barra, text="Pronto.", style="Estado.TLabel")
+        self._barra_estado.grid(row=0, column=1, sticky="w")
+        self._rotulo_contexto = ttk.Label(barra, text="", style="Estado.TLabel")
+        self._rotulo_contexto.grid(row=0, column=3, sticky="e")
+
+    def _alternar_registro(self) -> None:
+        self._registro_visivel = not self._registro_visivel
+        if self._registro_visivel:
+            self._cartao_registro.grid()
+            self.rowconfigure(4, weight=2)
+            self._botao_registro.configure(text="Ocultar registro")
+        else:
+            self._cartao_registro.grid_remove()
+            self.rowconfigure(4, weight=0)
+            self._botao_registro.configure(text="Mostrar registro")
+
+    # ------------------------------------------------------------------
+    # Layout responsivo
+    # ------------------------------------------------------------------
+
+    def _ao_redimensionar(self, evento: tk.Event) -> None:
+        if evento.widget is not self:
+            return
+        modo = "amplo" if evento.width >= LARGURA_MODO_AMPLO else "compacto"
+        if modo != self._modo_layout:
+            self._aplicar_layout(modo)
+
+    def _aplicar_layout(self, modo: str) -> None:
+        """Reorganiza as colunas conforme a largura disponivel.
+
+        Em telas largas as tres colunas ficam lado a lado. Abaixo de
+        ``LARGURA_MODO_AMPLO`` a coluna de dados desce para uma faixa
+        inteira, onde seus quatro cartoes se reorganizam em tres colunas.
+        """
+        self._modo_layout = modo
+        central = self._area_central
+        dados = self._coluna_dados
+
+        for indice in range(3):
+            central.columnconfigure(indice, weight=0, uniform="")
+        for indice in range(2):
+            central.rowconfigure(indice, weight=0)
+        for indice in range(4):
+            dados.columnconfigure(indice, weight=0, uniform="")
+            dados.rowconfigure(indice, weight=0)
+
+        if modo == "amplo":
+            central.columnconfigure(0, weight=36, uniform="colunas")
+            central.columnconfigure(1, weight=32, uniform="colunas")
+            central.columnconfigure(2, weight=32, uniform="colunas")
+            central.rowconfigure(0, weight=1)
+
+            self._coluna_mapa.grid(row=0, column=0, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
+            self._coluna_pilhas.grid(row=0, column=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
+            self._coluna_dados.grid(row=0, column=2, columnspan=1, sticky="nsew", padx=0, pady=0)
+
+            dados.columnconfigure(0, weight=1)
+            dados.rowconfigure(3, weight=1)
+            self._cartao_parametros.grid(row=0, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=(0, 12))
+            self._cartao_unidade.grid(row=1, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=(0, 12))
+            self._cartao_enderecos.grid(row=2, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=(0, 12))
+            self._cartao_eficiencia.grid(row=3, column=0, rowspan=1, columnspan=1, sticky="nsew", padx=0, pady=0)
+            self._rotulo_subtitulo.grid()
+        else:
+            central.columnconfigure(0, weight=1, uniform="colunas")
+            central.columnconfigure(1, weight=1, uniform="colunas")
+            central.rowconfigure(0, weight=3)
+            central.rowconfigure(1, weight=2)
+
+            self._coluna_mapa.grid(row=0, column=0, columnspan=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
+            self._coluna_pilhas.grid(row=0, column=1, columnspan=2, sticky="nsew", padx=0, pady=(0, 12))
+            self._coluna_dados.grid(row=1, column=0, columnspan=3, sticky="nsew", padx=0, pady=0)
+
+            dados.columnconfigure(0, weight=36, uniform="dados")
+            dados.columnconfigure(1, weight=32, uniform="dados")
+            dados.columnconfigure(2, weight=32, uniform="dados")
+            dados.rowconfigure(0, weight=1)
+            dados.rowconfigure(1, weight=1)
+            self._cartao_parametros.grid(row=0, column=0, rowspan=2, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
+            self._cartao_unidade.grid(row=0, column=1, rowspan=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
+            self._cartao_enderecos.grid(row=1, column=1, rowspan=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
+            self._cartao_eficiencia.grid(row=0, column=2, rowspan=2, columnspan=1, sticky="nsew", padx=0, pady=0)
+            self._rotulo_subtitulo.grid_remove()
+
     def _registrar_atalhos(self) -> None:
-        self.bind("<space>", lambda _e: self._passo())
-        self.bind("<Return>", lambda _e: self._executar())
-        self.bind("<Escape>", lambda _e: self._pausar())
-        self.bind("<Control-r>", lambda _e: self._reiniciar())
-        self.bind("<Control-s>", lambda _e: self._salvar_registro())
+        self.bind("<space>", self._atalho(self._passo))
+        self.bind("<Right>", self._atalho(self._passo))
+        self.bind("<Return>", self._atalho(self._executar))
+        self.bind("<Escape>", self._atalho(self._pausar))
+        self.bind("<Control-r>", self._atalho(self._reiniciar))
+        self.bind("<Control-s>", self._atalho(self._salvar_registro))
+        self.bind("<Control-l>", self._atalho(self._alternar_registro))
+
+    def _atalho(self, acao: Callable[[], None]):
+        """Ignora o atalho quando o foco esta em um campo de texto."""
+
+        def manipulador(_evento=None):
+            foco = self.focus_get()
+            if isinstance(foco, (ttk.Entry, tk.Entry, tk.Text)):
+                return None
+            acao()
+            return "break"
+
+        return manipulador
 
     # ------------------------------------------------------------------
     # Topologia e cenarios
@@ -640,12 +1299,16 @@ class AplicacaoSimulador(tk.Tk):
         except ErroDeTopologiaError as erro:
             messagebox.showerror("Topologia não carregada", str(erro), parent=self)
             if inicial and self._topologia is None:
-                self._informar("Nenhuma topologia carregada. Use “Abrir topologia…”.")
+                self._informar(
+                    "Nenhuma topologia carregada. Use “Abrir topologia”.", "erro"
+                )
             return
 
         self._topologia = topologia
         self._derrubados = []
         self._erro_de_bit = None
+        self._resetar_visualizacao()
+
         computadores = sorted(topologia.computadores())
         self._combo_origem.configure(values=computadores)
         self._combo_destino.configure(
@@ -656,15 +1319,22 @@ class AplicacaoSimulador(tk.Tk):
         )
         if self._combo_enlace["values"]:
             self._combo_enlace.current(0)
+
         try:
             self._eficiencias_referencia = comparar_eficiencias(topologia)
         except (ErroDeSimulacaoError, ErroDeTopologiaError):
             # Topologia diferente da de referencia: a comparacao C1 x C2 do
             # enunciado nao se aplica, e apenas o cenario corrente e exibido.
             self._eficiencias_referencia = {}
+
+        self._rotulo_contexto.configure(
+            text=(
+                f"{topologia.nome} · {len(topologia.dispositivos)} dispositivos · "
+                f"{len(topologia.segmentos)} redes"
+            )
+        )
         self._informar(
-            f"Topologia “{topologia.nome}” carregada de {os.path.basename(caminho)} "
-            f"({len(topologia.dispositivos)} dispositivos, {len(topologia.segmentos)} redes)."
+            f"Topologia “{topologia.nome}” carregada de {os.path.basename(caminho)}.", "ok"
         )
         self._carregar_cenario()
 
@@ -721,7 +1391,8 @@ class AplicacaoSimulador(tk.Tk):
         else:
             self._informar(
                 f"O cenário {cenario.codigo} foi escrito para a topologia de referência. "
-                f"Ajuste origem e destino e pressione Simular."
+                f"Ajuste origem e destino e pressione Simular.",
+                "aviso",
             )
             self._resultado = None
             self._indice = -1
@@ -793,7 +1464,7 @@ class AplicacaoSimulador(tk.Tk):
             self._resultado = simulacao.executar()
         except (ErroDeSimulacaoError, ErroDeTopologiaError) as erro:
             if silencioso:
-                self._informar(f"Não foi possível simular: {erro}")
+                self._informar(f"Não foi possível simular: {erro}", "erro")
             else:
                 messagebox.showerror("Não foi possível simular", str(erro), parent=self)
             return
@@ -812,7 +1483,8 @@ class AplicacaoSimulador(tk.Tk):
         self._redesenhar()
         self._informar(
             f"{cenario.nome_exibicao}: {self._resultado.total_de_passos} passos. "
-            f"Use Passo ou Executar."
+            f"Use Passo ou Executar.",
+            "ok",
         )
 
     def _passo(self) -> None:
@@ -829,6 +1501,7 @@ class AplicacaoSimulador(tk.Tk):
         if not self._resultado or self._reproduzindo:
             return
         self._reproduzindo = True
+        self._atualizar_controles()
         self._agendar()
 
     def _agendar(self) -> None:
@@ -839,6 +1512,7 @@ class AplicacaoSimulador(tk.Tk):
             self._agendamento = self.after(self._var_velocidade.get(), self._agendar)
         else:
             self._reproduzindo = False
+            self._atualizar_controles()
 
     def _pausar(self) -> None:
         self._reproduzindo = False
@@ -848,12 +1522,28 @@ class AplicacaoSimulador(tk.Tk):
             except tk.TclError:  # pragma: no cover
                 pass
             self._agendamento = None
+        self._atualizar_controles()
 
     def _reiniciar(self) -> None:
         self._pausar()
         self._indice = -1
         self._redesenhar()
         self._informar("Simulação reiniciada no passo 0.")
+
+    def _atualizar_controles(self) -> None:
+        """Liga e desliga os botoes conforme o estado da reproducao."""
+        if not hasattr(self, "_botao_passo"):
+            return
+        tem_resultado = bool(self._resultado)
+        no_fim = tem_resultado and self._indice + 1 >= len(self._resultado.eventos)
+
+        def alternar(botao: ttk.Button, ativo: bool) -> None:
+            botao.state(["!disabled"] if ativo else ["disabled"])
+
+        alternar(self._botao_passo, tem_resultado and not no_fim)
+        alternar(self._botao_executar, tem_resultado and not no_fim and not self._reproduzindo)
+        alternar(self._botao_pausar, self._reproduzindo)
+        alternar(self._botao_reiniciar, tem_resultado)
 
     # ------------------------------------------------------------------
     # Falhas
@@ -919,10 +1609,9 @@ class AplicacaoSimulador(tk.Tk):
         self._desenhar_unidade()
         self._desenhar_enderecos()
         self._destacar_registro()
-        total = len(self._resultado.eventos) if self._resultado else 0
-        self._rotulo_progresso.configure(
-            text=f"Passo {max(0, self._indice + 1)} de {total}"
-        )
+        self._atualizar_progresso()
+        self._atualizar_controles()
+
         evento = self._evento_atual()
         if evento is None:
             self._rotulo_passo.configure(
@@ -937,67 +1626,164 @@ class AplicacaoSimulador(tk.Tk):
                 )
             )
 
+    def _atualizar_progresso(self) -> None:
+        total = len(self._resultado.eventos) if self._resultado else 0
+        atual = max(0, self._indice + 1)
+        self._rotulo_progresso.configure(text=f"Passo {atual} de {total}")
+        self._progresso.configure(maximum=max(total, 1), value=atual)
+
     def _alternar_pilha(self) -> None:
         self._modo_pilha = self._var_pilha.get()
         self._desenhar_pilhas()
 
+    def _mensagem_vazia(self, canvas: tk.Canvas, texto: str) -> None:
+        """Estado vazio: diz o que fazer em vez de deixar a area em branco."""
+        largura = canvas.winfo_width()
+        altura = canvas.winfo_height()
+        retangulo(
+            canvas,
+            14,
+            14,
+            largura - 14,
+            altura - 14,
+            12,
+            fill="",
+            outline=PALETA["borda"],
+            dash=(4, 4),
+        )
+        canvas.create_text(
+            largura / 2,
+            altura / 2,
+            text=texto,
+            fill=PALETA["tinta_suave"],
+            font=self.fonte_rotulo,
+            width=max(120, largura - 60),
+            justify="center",
+        )
+
     # -- mapa --------------------------------------------------------------
+
+    def _iniciar_arrasto(self, evento) -> None:
+        self._arrasto_x, self._arrasto_y = evento.x, evento.y
+        self._canvas_mapa.configure(cursor="fleur")
+
+    def _arrastar(self, evento) -> None:
+        self._mapa_pan_x += evento.x - self._arrasto_x
+        self._mapa_pan_y += evento.y - self._arrasto_y
+        self._arrasto_x, self._arrasto_y = evento.x, evento.y
+        self._desenhar_mapa()
+
+    def _encerrar_arrasto(self, _evento=None) -> None:
+        self._canvas_mapa.configure(cursor="hand2")
+
+    def _aplicar_zoom(self, evento) -> None:
+        if getattr(evento, "num", None) == 4 or getattr(evento, "delta", 0) > 0:
+            fator = 1.12
+        elif getattr(evento, "num", None) == 5 or getattr(evento, "delta", 0) < 0:
+            fator = 1 / 1.12
+        else:
+            return
+        self._ajustar_zoom(fator, evento.x, evento.y)
+
+    def _zoom_central(self, fator: float) -> None:
+        self._ajustar_zoom(
+            fator, self._canvas_mapa.winfo_width() / 2, self._canvas_mapa.winfo_height() / 2
+        )
+
+    def _ajustar_zoom(self, fator: float, foco_x: float, foco_y: float) -> None:
+        """Amplia mantendo fixo o ponto sob o cursor."""
+        novo = min(4.0, max(0.4, self._mapa_zoom * fator))
+        fator = novo / self._mapa_zoom
+        if abs(fator - 1.0) < 1e-6:
+            return
+        self._mapa_zoom = novo
+        self._mapa_pan_x = foco_x - (foco_x - self._mapa_pan_x) * fator
+        self._mapa_pan_y = foco_y - (foco_y - self._mapa_pan_y) * fator
+        self._desenhar_mapa()
+
+    def _resetar_visualizacao(self) -> None:
+        self._mapa_zoom = 1.0
+        self._mapa_pan_x = 0.0
+        self._mapa_pan_y = 0.0
+        self._desenhar_mapa()
+
+    @staticmethod
+    def _pares_do_caminho(evento: Optional[Evento]):
+        """Separa o caminho em pares orientados e nao orientados."""
+        orientados = set()
+        conjuntos = set()
+        for par in (evento.caminho if evento else ()):
+            itens = tuple(par)
+            if len(itens) == 2:
+                orientados.add(itens)
+                conjuntos.add(frozenset(itens))
+        return orientados, conjuntos
 
     def _desenhar_mapa(self) -> None:
         canvas = self._canvas_mapa
         canvas.delete("all")
-        if self._topologia is None:
-            return
         largura = canvas.winfo_width()
         altura = canvas.winfo_height()
         if largura < 60 or altura < 60:
             return
+        if self._topologia is None:
+            self._mensagem_vazia(canvas, "Nenhuma topologia carregada.\nUse “Abrir topologia”.")
+            return
 
-        margem_x, margem_y = 46, 34
+        zoom = self._mapa_zoom
+        margem_x, margem_y = 58, 46
         posicoes = self._topologia.posicoes()
+
+        def tela(x: float, y: float) -> Tuple[float, float]:
+            return (x * zoom + self._mapa_pan_x, y * zoom + self._mapa_pan_y)
 
         def ponto(nome: str) -> Tuple[float, float]:
             rx, ry = posicoes[nome]
-            return (
+            return tela(
                 margem_x + rx * (largura - 2 * margem_x),
                 margem_y + ry * (altura - 2 * margem_y),
             )
 
+        def fonte_ui(tamanho: int, negrito: bool = False) -> tuple:
+            corpo = (self.familia_ui, max(6, int(round(tamanho * zoom))))
+            return corpo + ("bold",) if negrito else corpo
+
+        def fonte_mono(tamanho: int) -> tuple:
+            return (self.familia_mono, max(6, int(round(tamanho * zoom))))
+
         evento = self._evento_atual()
-        caminho = evento.caminho if evento else ()
-        pares = {frozenset(par) for par in caminho}
+        orientados, pares = self._pares_do_caminho(evento)
 
         for ligacao in self._topologia.ligacoes_visuais():
             membros = ligacao["membros"]
             ativo = ligacao["segmento"] not in self._derrubados
+            com_erro = ligacao["segmento"] == self._erro_de_bit
+
             if len(membros) == 2:
                 a, b = membros[0]["dispositivo"], membros[1]["dispositivo"]
+                pa, pb = ponto(a), ponto(b)
                 destacado = frozenset((a, b)) in pares
-                self._traco(canvas, ponto(a), ponto(b), ativo, destacado)
-                meio = (
-                    (ponto(a)[0] + ponto(b)[0]) / 2,
-                    (ponto(a)[1] + ponto(b)[1]) / 2,
-                )
+                sentido = None
+                if destacado:
+                    sentido = "last" if (a, b) in orientados else "first"
+                self._traco(canvas, pa, pb, ativo, destacado, sentido, zoom, com_erro)
+                meio = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
                 canvas.create_text(
                     meio[0],
-                    meio[1] - 10,
+                    meio[1] - 11 * zoom,
                     text=(
                         ligacao["prefixo"]
                         if ligacao["tipo"] == "local"
                         else f"custo {ligacao['custo']}"
                     ),
-                    font=self.fonte_mono_pequena,
+                    font=fonte_mono(8),
                     fill=PALETA["erro"] if not ativo else PALETA["tinta_fraca"],
                 )
-                self._rotulo_interface(
-                    canvas, ponto(a), ponto(b), membros[0]["interface"]
-                )
-                self._rotulo_interface(
-                    canvas, ponto(b), ponto(a), membros[1]["interface"]
-                )
+                self._rotulo_interface(canvas, pa, pb, membros[0]["interface"], fonte_mono(8))
+                self._rotulo_interface(canvas, pb, pa, membros[1]["interface"], fonte_mono(8))
             else:
                 if ligacao["posicao"]:
-                    centro = (
+                    centro = tela(
                         margem_x + ligacao["posicao"][0] * (largura - 2 * margem_x),
                         margem_y + ligacao["posicao"][1] * (altura - 2 * margem_y),
                     )
@@ -1008,20 +1794,28 @@ class AplicacaoSimulador(tk.Tk):
                         sum(p[1] for p in pontos) / len(pontos),
                     )
                 nomes = [m["dispositivo"] for m in membros]
-                destacados = {
-                    nome for par in pares if par <= set(nomes) for nome in par
+                internos = {
+                    par for par in orientados if set(par) <= set(nomes)
                 }
+                origens = {par[0] for par in internos}
+                destinos = {par[1] for par in internos}
                 for membro in membros:
                     nome = membro["dispositivo"]
-                    self._traco(canvas, ponto(nome), centro, ativo, nome in destacados)
-                    self._rotulo_interface(
-                        canvas, ponto(nome), centro, membro["interface"]
+                    destacado = nome in origens or nome in destinos
+                    sentido = "last" if nome in origens else ("first" if nome in destinos else None)
+                    self._traco(
+                        canvas, ponto(nome), centro, ativo, destacado, sentido, zoom, com_erro
                     )
-                canvas.create_oval(
-                    centro[0] - 30,
-                    centro[1] - 13,
-                    centro[0] + 30,
-                    centro[1] + 13,
+                    self._rotulo_interface(
+                        canvas, ponto(nome), centro, membro["interface"], fonte_mono(8)
+                    )
+                retangulo(
+                    canvas,
+                    centro[0] - 34 * zoom,
+                    centro[1] - 14 * zoom,
+                    centro[0] + 34 * zoom,
+                    centro[1] + 14 * zoom,
+                    12 * zoom,
                     fill=PALETA["estrutura_clara"],
                     outline=PALETA["estrutura"],
                 )
@@ -1029,14 +1823,14 @@ class AplicacaoSimulador(tk.Tk):
                     centro[0],
                     centro[1],
                     text=ligacao["segmento"].replace("Rede ", ""),
-                    font=self.fonte_mono_pequena,
+                    font=fonte_mono(8),
                     fill=PALETA["estrutura"],
                 )
                 canvas.create_text(
                     centro[0],
-                    centro[1] + 22,
+                    centro[1] + 24 * zoom,
                     text=ligacao["prefixo"],
-                    font=self.fonte_mono_pequena,
+                    font=fonte_mono(8),
                     fill=PALETA["tinta_fraca"],
                 )
 
@@ -1044,85 +1838,140 @@ class AplicacaoSimulador(tk.Tk):
         for nome, descricao in self._topologia.dispositivos.items():
             x, y = ponto(nome)
             roteador = descricao.tipo == "roteador"
-            largura_caixa, altura_caixa = (34, 26) if roteador else (32, 24)
+            meia_largura = (48 if roteador else 44) * zoom
+            meia_altura = (30 if roteador else 26) * zoom
             destaque = nome == atual
             cor_fundo = (
                 PALETA["ativo_claro"]
                 if destaque
                 else (PALETA["estrutura_clara"] if roteador else PALETA["painel"])
             )
-            cor_borda = PALETA["ativo"] if destaque else PALETA["estrutura"]
+            cor_borda = PALETA["ativo"] if destaque else (
+                PALETA["estrutura"] if roteador else PALETA["borda_forte"]
+            )
+            espessura = 3 if destaque else 1
+
             if roteador:
                 canvas.create_polygon(
-                    x,
-                    y - altura_caixa,
-                    x + largura_caixa,
-                    y,
-                    x,
-                    y + altura_caixa,
-                    x - largura_caixa,
-                    y,
+                    x, y - meia_altura,
+                    x + meia_largura, y,
+                    x, y + meia_altura,
+                    x - meia_largura, y,
                     fill=cor_fundo,
                     outline=cor_borda,
-                    width=2 if destaque else 1,
+                    width=espessura,
                 )
             else:
-                canvas.create_rectangle(
-                    x - largura_caixa,
-                    y - altura_caixa,
-                    x + largura_caixa,
-                    y + altura_caixa,
+                retangulo(
+                    canvas,
+                    x - meia_largura + 2 * zoom,
+                    y - meia_altura + 3 * zoom,
+                    x + meia_largura + 2 * zoom,
+                    y + meia_altura + 3 * zoom,
+                    10 * zoom,
+                    fill=PALETA["sombra"],
+                    outline="",
+                )
+                retangulo(
+                    canvas,
+                    x - meia_largura,
+                    y - meia_altura,
+                    x + meia_largura,
+                    y + meia_altura,
+                    10 * zoom,
                     fill=cor_fundo,
                     outline=cor_borda,
-                    width=2 if destaque else 1,
+                    width=espessura,
                 )
             canvas.create_text(
-                x, y - 6, text=nome, font=self.fonte_titulo, fill=PALETA["tinta"]
+                x, y - 7 * zoom, text=nome, font=fonte_ui(9, True), fill=PALETA["tinta"]
             )
             canvas.create_text(
                 x,
-                y + 8,
+                y + 8 * zoom,
                 text=descricao.interfaces[0].logico,
-                font=self.fonte_mono_pequena,
+                font=fonte_mono(8),
                 fill=PALETA["tinta_fraca"],
             )
-        if self._mapa_zoom != 1.0:
-            # Escala tudo a partir do ponto superior esquerdo (0,0)
-            canvas.scale("all", 0, 0, self._mapa_zoom, self._mapa_zoom)
-        if self._mapa_pan_x != 0.0 or self._mapa_pan_y != 0.0:
-            # Move para a posição arrastada salva
-            canvas.move("all", self._mapa_pan_x, self._mapa_pan_y)
 
-    def _traco(self, canvas, origem, destino, ativo: bool, destacado: bool) -> None:
+        self._desenhar_legenda_mapa(canvas, largura, altura)
+
+    def _desenhar_legenda_mapa(self, canvas: tk.Canvas, largura: int, altura: int) -> None:
+        """Legenda e instrucoes, desenhadas em coordenadas de tela."""
+        if altura < 190 or largura < 320:
+            return
+        itens = (
+            (PALETA["ativo"], "caminho atual"),
+            (PALETA["inativo"], "enlace disponível"),
+            (PALETA["erro"], "enlace derrubado"),
+        )
+        x = 14.0
+        y = altura - 18
+        for cor, texto in itens:
+            canvas.create_line(x, y, x + 16, y, fill=cor, width=3, capstyle="round")
+            canvas.create_text(
+                x + 22,
+                y,
+                text=texto,
+                anchor="w",
+                font=self.fonte_mini,
+                fill=PALETA["tinta_fraca"],
+            )
+            x += 30 + len(texto) * 5.6
+        canvas.create_text(
+            largura - 12,
+            14,
+            text="roda amplia · arraste move · duplo clique ajusta",
+            anchor="e",
+            font=self.fonte_mini,
+            fill=PALETA["tinta_suave"],
+        )
+
+    def _traco(
+        self,
+        canvas: tk.Canvas,
+        origem,
+        destino,
+        ativo: bool,
+        destacado: bool,
+        sentido: Optional[str],
+        zoom: float,
+        com_erro: bool = False,
+    ) -> None:
         if not ativo:
             canvas.create_line(
-                *origem, *destino, fill=PALETA["erro"], width=2, dash=(5, 4)
+                *origem, *destino, fill=PALETA["erro"], width=2 * zoom, dash=(6, 5)
             )
             meio = ((origem[0] + destino[0]) / 2, (origem[1] + destino[1]) / 2)
             canvas.create_text(
                 meio[0],
-                meio[1] + 10,
-                text="X",
+                meio[1] + 11 * zoom,
+                text="✕",
                 fill=PALETA["erro"],
-                font=self.fonte_titulo,
+                font=(self.familia_ui, max(7, int(10 * zoom)), "bold"),
             )
             return
-        canvas.create_line(
-            *origem,
-            *destino,
-            fill=PALETA["ativo"] if destacado else PALETA["inativo"],
-            width=4 if destacado else 1.5,
-        )
+        opcoes = {
+            "fill": PALETA["ativo"] if destacado else PALETA["inativo"],
+            "width": (4.5 if destacado else 1.6) * zoom,
+            "capstyle": "round",
+        }
+        if com_erro:
+            opcoes["dash"] = (8, 4)
+        if destacado and sentido:
+            opcoes["arrow"] = sentido
+            opcoes["arrowshape"] = (12 * zoom, 15 * zoom, 5 * zoom)
+        canvas.create_line(*origem, *destino, **opcoes)
 
-    def _rotulo_interface(self, canvas, origem, destino, nome: str) -> None:
+    def _rotulo_interface(self, canvas: tk.Canvas, origem, destino, nome: str, fonte) -> None:
         dx, dy = destino[0] - origem[0], destino[1] - origem[1]
         comprimento = max(1.0, (dx * dx + dy * dy) ** 0.5)
-        fator = min(0.34, 44 / comprimento)
+        fator = min(0.34, 48 * self._mapa_zoom / comprimento)
         canvas.create_text(
             origem[0] + dx * fator,
             origem[1] + dy * fator,
             text=nome,
-            font=self.fonte_mono_pequena,
+            font=fonte,
             fill=PALETA["tinta_fraca"],
         )
 
@@ -1146,67 +1995,115 @@ class AplicacaoSimulador(tk.Tk):
     def _desenhar_pilhas(self) -> None:
         canvas = self._canvas_pilhas
         canvas.delete("all")
-        if not self._resultado:
-            return
         largura = canvas.winfo_width()
         altura = canvas.winfo_height()
         if largura < 60 or altura < 60:
+            return
+        if not self._resultado or self._topologia is None:
+            self._mensagem_vazia(
+                canvas, "As pilhas dos dispositivos aparecem aqui depois da simulação."
+            )
             return
 
         envolvidos = list(self._resultado.dispositivos_envolvidos)
         if not envolvidos:
             return
+
         evento = self._evento_atual()
         coluna = largura / len(envolvidos)
-        topo = 22
-        altura_util = altura - topo - 8
+        topo = 34.0
+        altura_util = altura - topo - 12
+        bases: List[Tuple[float, float, float]] = []
 
         for indice, nome in enumerate(envolvidos):
             descricao = self._topologia.dispositivos[nome]
             faixas = self._faixas(descricao.tipo)
-            altura_faixa = min(34.0, altura_util / max(len(faixas), 1))
-            x0 = indice * coluna + 8
-            x1 = (indice + 1) * coluna - 8
+            altura_faixa = min(40.0, altura_util / max(len(faixas), 1))
+            x0 = indice * coluna + 9
+            x1 = (indice + 1) * coluna - 9
             ativo_aqui = evento is not None and evento.dispositivo == nome
+
+            # Identificacao do dispositivo
+            retangulo(
+                canvas,
+                x0,
+                4,
+                x1,
+                26,
+                10,
+                fill=PALETA["ativo_claro"] if ativo_aqui else PALETA["painel_alt"],
+                outline=PALETA["ativo"] if ativo_aqui else PALETA["borda"],
+            )
             canvas.create_text(
                 (x0 + x1) / 2,
-                10,
+                15,
                 text=nome,
                 font=self.fonte_titulo,
                 fill=PALETA["ativo"] if ativo_aqui else PALETA["tinta"],
             )
+
             for posicao, (rotulo, numeros) in enumerate(faixas):
                 y0 = topo + posicao * altura_faixa
-                y1 = y0 + altura_faixa - 3
+                y1 = y0 + altura_faixa - 4
                 ativa = ativo_aqui and evento.camada in numeros
                 decisao_de_rota = (
                     ativa and descricao.tipo == "roteador" and evento.camada == 3
                 )
-                canvas.create_rectangle(
+                retangulo(
+                    canvas,
                     x0,
                     y0,
                     x1,
                     y1,
+                    7,
                     fill=PALETA["ativo_claro"] if ativa else PALETA["painel"],
                     outline=PALETA["ativo"] if ativa else PALETA["borda"],
                     width=3 if decisao_de_rota else (2 if ativa else 1),
                 )
+                # Faixa colorida da camada, a esquerda
+                menor = min(numeros)
+                retangulo(
+                    canvas,
+                    x0 + 3,
+                    y0 + 4,
+                    x0 + 8,
+                    y1 - 4,
+                    3,
+                    fill=COR_CAMADA.get(menor, PALETA["estrutura"]),
+                    outline="",
+                )
                 canvas.create_text(
                     (x0 + x1) / 2,
                     (y0 + y1) / 2,
-                    text=rotulo if (x1 - x0) > 96 else rotulo.split(" ")[0],
-                    font=self.fonte_base,
+                    text=rotulo if (x1 - x0) > 118 else rotulo.split(" ")[0],
+                    font=self.fonte_titulo if ativa else self.fonte_base,
                     fill=PALETA["tinta"] if ativa else PALETA["tinta_fraca"],
                 )
-                if ativa:
-                    canvas.create_rectangle(
-                        x0 + 2,
-                        y0 + 2,
-                        x0 + 6,
-                        y1 - 2,
+                if ativa and (x1 - x0) > 150 and evento is not None:
+                    canvas.create_text(
+                        x1 - 10,
+                        (y0 + y1) / 2,
+                        text=evento.acao,
+                        anchor="e",
+                        font=self.fonte_mini,
                         fill=PALETA["ativo"],
-                        outline=PALETA["ativo"],
                     )
+                if posicao == len(faixas) - 1:
+                    bases.append((x0, x1, (y0 + y1) / 2))
+
+        # Meio fisico: liga a base das pilhas vizinhas
+        for (_, x1_anterior, y_anterior), (x0_proximo, _, y_proximo) in zip(
+            bases, bases[1:]
+        ):
+            canvas.create_line(
+                x1_anterior,
+                y_anterior,
+                x0_proximo,
+                y_proximo,
+                fill=PALETA["borda_forte"],
+                width=1,
+                dash=(3, 3),
+            )
 
     # -- unidade de dados --------------------------------------------------
 
@@ -1214,31 +2111,34 @@ class AplicacaoSimulador(tk.Tk):
         canvas = self._canvas_unidade
         canvas.delete("all")
         largura = canvas.winfo_width()
-        if largura < 60:
+        altura = canvas.winfo_height()
+        if largura < 60 or altura < 40:
             return
         evento = self._evento_atual()
         if evento is None or not evento.blocos:
-            canvas.create_text(
-                largura / 2,
-                52,
-                text="A unidade de dados aparece aqui a cada passo.",
-                fill=PALETA["tinta_fraca"],
-                font=self.fonte_base,
-            )
+            self._mensagem_vazia(canvas, "A unidade de dados aparece aqui a cada passo.")
             return
 
+        blocos = list(evento.blocos)
+        uteis = sum(b["tamanho"] for b in blocos if b["tipo"] == "dados")
         titulo = f"{evento.unidade}"
         if evento.identificador:
             titulo += f" {evento.identificador}"
-        titulo += f" — {evento.tamanho} octetos"
         canvas.create_text(
-            8, 12, text=titulo, anchor="w", font=self.fonte_titulo, fill=PALETA["tinta"]
+            6, 12, text=titulo, anchor="w", font=self.fonte_titulo, fill=PALETA["tinta"]
+        )
+        canvas.create_text(
+            largura - 6,
+            12,
+            text=f"{evento.tamanho} octetos · {uteis} úteis",
+            anchor="e",
+            font=self.fonte_mini,
+            fill=PALETA["tinta_fraca"],
         )
 
-        blocos = list(evento.blocos)
         total = sum(max(b["tamanho"], 1) for b in blocos)
-        util = largura - 16
-        minimo = 30.0
+        util = largura - 12
+        minimo = 34.0
         larguras = [max(minimo, util * max(b["tamanho"], 1) / total) for b in blocos]
         excesso = sum(larguras) - util
         if excesso > 0:
@@ -1247,26 +2147,27 @@ class AplicacaoSimulador(tk.Tk):
             for i in folgados:
                 larguras[i] -= (larguras[i] - minimo) * excesso / disponivel
 
-        x = 8.0
-        y0, y1 = 28, 76
+        y0 = 26.0
+        y1 = max(y0 + 34, altura - 24)
+        x = 6.0
         for bloco, largura_bloco in zip(blocos, larguras):
             if bloco["tipo"] == "dados":
                 fundo, borda = PALETA["dados_claro"], PALETA["dados"]
             elif bloco["tipo"] == "finalizador":
-                fundo, borda = "#EFF2F4", PALETA["tinta_fraca"]
+                fundo, borda = PALETA["painel_alt"], PALETA["tinta_fraca"]
             else:
-                borda = COR_CAMADA.get(bloco["camada"], PALETA["estrutura"])
+                borda = COR_CAMADA.get(bloco.get("camada"), PALETA["estrutura"])
                 fundo = (
                     PALETA["ativo_claro"]
-                    if bloco["camada"] == evento.camada
-                    else "#F4F8FA"
+                    if bloco.get("camada") == evento.camada
+                    else PALETA["painel_alt"]
                 )
-            canvas.create_rectangle(
-                x, y0, x + largura_bloco, y1, fill=fundo, outline=borda, width=2
+            retangulo(
+                canvas, x, y0, x + largura_bloco, y1, 7, fill=fundo, outline=borda, width=2
             )
             canvas.create_text(
                 x + largura_bloco / 2,
-                (y0 + y1) / 2 - 7,
+                (y0 + y1) / 2 - 8,
                 text=bloco["rotulo"],
                 font=self.fonte_titulo,
                 fill=borda,
@@ -1281,12 +2182,12 @@ class AplicacaoSimulador(tk.Tk):
             x += largura_bloco
 
         canvas.create_text(
-            8,
-            90,
+            6,
+            altura - 9,
             anchor="w",
             text="Cabeçalhos à esquerda dos dados; finalizador da camada 2 à direita.",
-            font=self.fonte_mono_pequena,
-            fill=PALETA["tinta_fraca"],
+            font=self.fonte_mini,
+            fill=PALETA["tinta_suave"],
         )
 
     # -- enderecos ---------------------------------------------------------
@@ -1295,60 +2196,70 @@ class AplicacaoSimulador(tk.Tk):
         canvas = self._canvas_enderecos
         canvas.delete("all")
         largura = canvas.winfo_width()
-        if largura < 60:
+        altura = canvas.winfo_height()
+        if largura < 60 or altura < 40:
             return
         evento = self._evento_atual()
         metade = largura / 2 - 6
+        base = max(96.0, altura - 6)
 
-        def caixa(x: float, titulo: str, nota: str, par, cor: str, mono: bool) -> None:
-            canvas.create_rectangle(
-                x, 6, x + metade, 104, fill=PALETA["painel"], outline=cor, width=2
+        def caixa(x: float, titulo: str, nota: str, par, cor: str) -> None:
+            retangulo(
+                canvas,
+                x,
+                4,
+                x + metade,
+                base,
+                10,
+                fill=PALETA["painel"],
+                outline=cor,
+                width=2,
+            )
+            retangulo(canvas, x, 4, x + metade, 30, 10, fill=mesclar(PALETA["painel"], cor, 0.12), outline="")
+            canvas.create_text(
+                x + 11, 17, text=titulo, anchor="w", font=self.fonte_titulo, fill=cor
             )
             canvas.create_text(
-                x + 10, 20, text=titulo, anchor="w", font=self.fonte_titulo, fill=cor
-            )
-            canvas.create_text(
-                x + 10,
-                36,
+                x + 11,
+                42,
                 text=nota,
                 anchor="w",
-                font=self.fonte_mono_pequena,
-                fill=PALETA["tinta_fraca"],
+                font=self.fonte_mini,
+                fill=PALETA["tinta_suave"],
+                width=metade - 20,
             )
             origem, destino = par if par else ("—", "—")
-            fonte = self.fonte_mono if mono else self.fonte_base
             canvas.create_text(
-                x + 10,
-                60,
-                text=f"origem  {origem}",
+                x + 11,
+                base - 34,
+                text=f"origem   {origem}",
                 anchor="w",
-                font=fonte,
+                font=self.fonte_mono,
                 fill=PALETA["tinta"],
             )
             canvas.create_text(
-                x + 10,
-                82,
-                text=f"destino {destino}",
+                x + 11,
+                base - 14,
+                text=f"destino  {destino}",
                 anchor="w",
-                font=fonte,
+                font=self.fonte_mono,
                 fill=PALETA["tinta"],
             )
 
         caixa(
             2,
-            "Endereços lógicos",
+            "Lógicos",
             "inseridos na origem, constantes até o destino",
             evento.logicos if evento else None,
             PALETA["estrutura"],
-            True,
         )
         caixa(
             largura / 2 + 4,
-            "Endereços físicos",
-            f"substituídos a cada salto{' · ' + evento.enlace if evento and evento.enlace else ''}",
+            "Físicos",
+            "substituídos a cada salto"
+            + (f" · {evento.enlace}" if evento and evento.enlace else ""),
             evento.fisicos if evento else None,
             PALETA["ativo"],
-            True,
         )
 
     # -- registro ----------------------------------------------------------
@@ -1357,8 +2268,12 @@ class AplicacaoSimulador(tk.Tk):
         self._texto_registro.configure(state="normal")
         self._texto_registro.delete("1.0", "end")
         if self._resultado:
-            for evento in self._resultado.eventos:
-                marcas = ("descarte",) if evento.descarte else ()
+            for posicao, evento in enumerate(self._resultado.eventos):
+                marcas: Tuple[str, ...] = ()
+                if posicao % 2:
+                    marcas += ("alternada",)
+                if evento.descarte:
+                    marcas += ("descarte",)
                 self._texto_registro.insert("end", evento.linha + "\n", marcas)
         self._texto_registro.configure(state="disabled")
 
@@ -1401,7 +2316,7 @@ class AplicacaoSimulador(tk.Tk):
         except OSError as erro:
             messagebox.showerror("Registro não salvo", str(erro), parent=self)
             return
-        self._informar(f"Registro salvo em {destino}")
+        self._informar(f"Registro salvo em {destino}", "ok")
 
     # -- eficiencia --------------------------------------------------------
 
@@ -1439,12 +2354,11 @@ class AplicacaoSimulador(tk.Tk):
 
     def _atualizar_tamanho_mensagem(self) -> None:
         octetos = len(self._var_mensagem.get().encode("utf-8"))
-        aviso = (
-            " (será segmentada)"
-            if octetos + TAMANHO_CABECALHO[5] > LIMITE_SEGMENTACAO
-            else ""
+        segmentada = octetos + TAMANHO_CABECALHO[5] > LIMITE_SEGMENTACAO
+        self._rotulo_tamanho.configure(
+            text=f"{octetos} octetos" + (" · será segmentada" if segmentada else ""),
+            foreground=PALETA["ativo"] if segmentada else PALETA["tinta_fraca"],
         )
-        self._rotulo_tamanho.configure(text=f"{octetos} octetos{aviso}")
 
     # -- tabelas -----------------------------------------------------------
 
@@ -1454,29 +2368,31 @@ class AplicacaoSimulador(tk.Tk):
         janela = tk.Toplevel(self)
         janela.title("Tabelas de encaminhamento")
         janela.configure(background=PALETA["fundo"])
-        janela.geometry("560x460")
+        janela.geometry("620x500")
         janela.transient(self)
 
         caderno = ttk.Notebook(janela)
-        caderno.pack(fill="both", expand=True, padx=10, pady=10)
+        caderno.pack(fill="both", expand=True, padx=14, pady=(14, 6))
         for roteador in sorted(self._topologia.roteadores()):
-            aba = ttk.Frame(caderno, padding=6)
+            aba = ttk.Frame(caderno, padding=8)
             caderno.add(aba, text=roteador)
+            aba.columnconfigure(0, weight=1)
+            aba.rowconfigure(0, weight=1)
             tabela = ttk.Treeview(
                 aba,
                 columns=("destino", "salto", "custo", "interface"),
                 show="headings",
                 height=12,
             )
-            for coluna, titulo, largura in (
-                ("destino", "Rede de destino", 150),
-                ("salto", "Próximo salto", 130),
-                ("custo", "Custo", 60),
-                ("interface", "Interface", 90),
+            for coluna, titulo, largura, alinhamento in (
+                ("destino", "Rede de destino", 170, "w"),
+                ("salto", "Próximo salto", 150, "w"),
+                ("custo", "Custo", 70, "center"),
+                ("interface", "Interface", 110, "w"),
             ):
                 tabela.heading(coluna, text=titulo)
-                tabela.column(coluna, width=largura, anchor="w")
-            for rota in self._topologia.tabela_encaminhamento(roteador):
+                tabela.column(coluna, width=largura, anchor=alinhamento)
+            for posicao, rota in enumerate(self._topologia.tabela_encaminhamento(roteador)):
                 tabela.insert(
                     "",
                     "end",
@@ -1486,25 +2402,39 @@ class AplicacaoSimulador(tk.Tk):
                         rota.custo,
                         rota.interface,
                     ),
+                    tags=("par",) if posicao % 2 else (),
                 )
-            tabela.pack(fill="both", expand=True)
+            tabela.tag_configure("par", background=PALETA["painel_alt"])
+            tabela.grid(row=0, column=0, sticky="nsew")
+            rolagem = ttk.Scrollbar(aba, orient="vertical", command=tabela.yview)
+            rolagem.grid(row=0, column=1, sticky="ns")
+            tabela.configure(yscrollcommand=rolagem.set)
+
         ttk.Label(
             janela,
             text=(
-                "Tabelas calculadas a partir dos custos do arquivo de topologia, "
+                "Rotas calculadas a partir dos custos do arquivo de topologia, "
                 "pelo algoritmo de menor custo."
             ),
-            wraplength=520,
-            padding=(10, 0, 10, 10),
+            wraplength=580,
+            padding=(14, 0, 14, 14),
         ).pack(anchor="w")
 
     # -- estado ------------------------------------------------------------
 
-    def _informar(self, mensagem: str) -> None:
+    def _informar(self, mensagem: str, tipo: str = "info") -> None:
+        cores = {
+            "info": PALETA["estrutura"],
+            "ok": PALETA["entrega"],
+            "aviso": PALETA["ativo"],
+            "erro": PALETA["erro"],
+        }
+        self._ponto_estado.configure(foreground=cores.get(tipo, PALETA["estrutura"]))
         self._barra_estado.configure(text=mensagem)
 
 
 def executar(caminho_topologia: Optional[str] = None) -> None:
     """Abre a janela do simulador."""
+    preparar_dpi()
     aplicacao = AplicacaoSimulador(caminho_topologia)
     aplicacao.mainloop()
