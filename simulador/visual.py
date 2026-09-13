@@ -28,6 +28,7 @@ Notas de construcao da camada visual:
 
 from __future__ import annotations
 
+import sys
 import os
 import platform
 import tkinter as tk
@@ -171,6 +172,7 @@ def preparar_dpi() -> None:
 
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("simuladorosi.comunicacaodados")
         except (AttributeError, OSError):
             ctypes.windll.user32.SetProcessDPIAware()
     except Exception:
@@ -315,6 +317,7 @@ class AplicacaoSimulador(tk.Tk):
     def __init__(self, caminho_topologia: Optional[str] = None) -> None:
         preparar_dpi()
         super().__init__()
+        self._definir_icone()
         self.title("Simulador do modelo OSI — Comunicação de Dados")
         self.minsize(1024, 680)
 
@@ -2431,6 +2434,27 @@ class AplicacaoSimulador(tk.Tk):
         }
         self._ponto_estado.configure(foreground=cores.get(tipo, PALETA["estrutura"]))
         self._barra_estado.configure(text=mensagem)
+
+    def _definir_icone(self) -> None:
+        """Aplica o ícone da janela e da barra de tarefas."""
+        if getattr(sys, "_MEIPASS", None):
+            # Empacotado: o arquivo foi extraído para dentro do _MEIPASS.
+            candidatos = [
+                os.path.join(sys._MEIPASS, "recursos", "icone.ico"),
+                os.path.join(sys._MEIPASS, "icone.ico"),
+            ]
+        else:
+            # Código-fonte: recursos/ fica ao lado do pacote simulador/.
+            raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            candidatos = [os.path.join(raiz, "recursos", "icone.ico")]
+
+        for caminho in candidatos:
+            if os.path.exists(caminho):
+                try:
+                    self.iconbitmap(caminho)
+                except tk.TclError:  # .ico não é aceito fora do Windows
+                    pass
+                return
 
 
 def executar(caminho_topologia: Optional[str] = None) -> None:

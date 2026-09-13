@@ -60,6 +60,8 @@ def montar_comando() -> list[str]:
     icone = os.path.join(RAIZ, "recursos", "icone.ico")
     if os.path.isfile(icone):
         comando[-1:-1] = ["--icon", icone]
+        # Embute o .ico para o iconbitmap encontrar em tempo de execução.
+        comando[-1:-1] = ["--add-data", f"{icone}{_separador()}recursos"]
     return comando
 
 
