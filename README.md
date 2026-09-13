@@ -17,7 +17,7 @@ o tratamento em cada roteador do percurso e o desempilhamento no destino.
 
 ### Caminho mais curto (Windows, sem instalar nada)
 
-1. Baixe o arquivo `Simulador-OSI-v1.zip` da seção *Releases*
+1. Baixe a versão mais recente do arquivo na seção [*Releases*](https://github.com/Gabriieu/simulador-osi/releases)
    do repositório.
 2. Extraia o arquivo.
 2. Dê um duplo clique no executável.
