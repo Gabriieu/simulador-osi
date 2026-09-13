@@ -88,6 +88,38 @@ class _Widget:
     def winfo_height(self):
         return 420
 
+    def winfo_screenwidth(self):
+        return 1920
+
+    def winfo_screenheight(self):
+        return 1080
+
+    def tag_configure(self, *a, **k):
+        return self
+
+    tag_config = tag_configure
+
+    def tag_add(self, *a, **k):
+        return self
+
+    def tag_remove(self, *a, **k):
+        return self
+
+    #: Nomes que o tkinter real expõe e que o simulador pode chamar sem que
+    #: a conferência precise conhecê-los um a um.
+    _TOLERADOS = (
+        "winfo_", "wm_", "grid_", "pack_", "place_", "event_", "focus_",
+        "attributes", "unbind", "lift", "lower", "itemconfig", "coords",
+        "scale", "move", "identify",
+    )
+
+    def __getattr__(self, nome):
+        # Atributos privados continuam falhando: é assim que erros reais do
+        # simulador (campo não inicializado, por exemplo) aparecem.
+        if nome.startswith("_") or not nome.startswith(self._TOLERADOS):
+            raise AttributeError(nome)
+        return lambda *a, **k: None
+
     def winfo_exists(self):
         return True
 
@@ -118,6 +150,18 @@ class _Widget:
         return None
 
     def column(self, *a, **k):
+        return None
+
+    def yview(self, *a, **k):
+        return None
+
+    def xview(self, *a, **k):
+        return None
+
+    def yview_moveto(self, *a, **k):
+        return None
+
+    def xview_moveto(self, *a, **k):
         return None
 
 
@@ -389,10 +433,22 @@ def _instalar() -> None:
 
     tk.filedialog = filedialog
     tk.messagebox = messagebox
+
+    fonte = types.ModuleType("tkinter.font")
+    fonte.families = lambda *a, **k: (
+        "Segoe UI", "Consolas", "DejaVu Sans", "DejaVu Sans Mono",
+    )
+    fonte.nametofont = lambda *a, **k: _Widget()
+    fonte.Font = _Widget
+    tk.font = fonte
+    tk.Misc = _Widget
+    tk.Widget = _Widget
+
     sys.modules.update(
         {
             "tkinter": tk,
             "tkinter.ttk": ttk,
+            "tkinter.font": fonte,
             "tkinter.filedialog": filedialog,
             "tkinter.messagebox": messagebox,
         }
@@ -422,6 +478,14 @@ def conferir() -> int:
     # botoes e alternancias
     janela._alternar_pilha()
     janela._alternar_pilha()
+    janela._alternar_tema()          # tema escuro
+    janela._alternar_tema()          # de volta ao claro
+    janela._alternar_registro()      # recolhe o registro
+    janela._alternar_registro()      # e mostra de novo
+    janela._aplicar_layout("compacto")
+    janela._aplicar_layout("amplo")
+    janela._zoom_central(1.2)
+    janela._resetar_visualizacao()
     janela._mostrar_tabelas()
     janela._derrubar_enlace()
     janela._injetar_erro()
