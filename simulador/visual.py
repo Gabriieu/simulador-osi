@@ -334,12 +334,16 @@ class AplicacaoSimulador(tk.Tk):
         self._eficiencias_referencia: Dict[str, object] = {}
 
         # -- estado da visualizacao ----------------------------------------
-        self._tema = self._ler_tema()
+        # Preferencias persistidas em config.toml: tema e visibilidade do
+        # registro sao lidas juntas para que uma unica leitura do arquivo
+        # baste, e para que salva-las depois nunca apague uma a outra.
+        config_interface = self._ler_config_interface()
+        self._tema = config_interface["tema"]
         PALETA.update(TEMA_ESCURO if self._tema == "escuro" else TEMA_CLARO)
         COR_CAMADA.update(CAMADAS_ESCURO if self._tema == "escuro" else CAMADAS_CLARO)
-        
+
         self._modo_layout = ""
-        self._registro_visivel = True
+        self._registro_visivel = config_interface["registro_visivel"]
         self._mapa_zoom = 1.0
         self._mapa_pan_x = 0.0
         self._mapa_pan_y = 0.0
@@ -349,6 +353,7 @@ class AplicacaoSimulador(tk.Tk):
         self._definir_fontes()
         self._preparar_estilos()
         self._construir_layout()
+        self._aplicar_visibilidade_registro()
         self._aplicar_layout("amplo")
         self._registrar_atalhos()
         self._posicionar_janela()
@@ -388,34 +393,58 @@ class AplicacaoSimulador(tk.Tk):
         self._pausar()
         self.destroy()
 
-    def _ler_tema(self) -> str:
-        """Lê a preferência de tema de config.toml no diretório do executável."""
+    def _ler_config_interface(self) -> Dict[str, object]:
+        """Lê as preferências de interface salvas em ``config.toml``.
+
+        Reúne, numa só leitura do arquivo, tanto o tema quanto a
+        visibilidade do registro de eventos. Qualquer problema — arquivo
+        ausente, corrompido ou com uma chave faltando — cai de volta nos
+        valores padrão, para que a aplicação sempre abra normalmente.
+        """
+        padrao: Dict[str, object] = {"tema": "claro", "registro_visivel": True}
         arquivo = os.path.join(pasta_do_programa(), "config.toml")
         if not os.path.exists(arquivo):
-            return "claro"
+            return padrao
         try:
             if sys.version_info >= (3, 11):
                 import tomllib
                 with open(arquivo, "rb") as f:
-                    config = tomllib.load(f)
-                    tema = config.get("interface", {}).get("tema", "claro")
-                    return tema if tema in ("claro", "escuro") else "claro"
+                    secao = tomllib.load(f).get("interface", {})
+                tema = secao.get("tema", padrao["tema"])
+                registro_visivel = secao.get("registro_visivel", padrao["registro_visivel"])
             else:
-                # Fallback sem dependência para Python < 3.11
+                # Fallback sem dependência para Python < 3.11: leitura
+                # linha a linha das duas únicas chaves que esta tela grava.
+                tema, registro_visivel = padrao["tema"], padrao["registro_visivel"]
                 with open(arquivo, "r", encoding="utf-8") as f:
-                    return "escuro" if 'tema = "escuro"' in f.read() else "claro"
+                    for linha in f:
+                        linha = linha.strip()
+                        if linha.startswith("tema"):
+                            tema = "escuro" if "escuro" in linha else "claro"
+                        elif linha.startswith("registro_visivel"):
+                            registro_visivel = "true" in linha.lower()
+            return {
+                "tema": tema if tema in ("claro", "escuro") else padrao["tema"],
+                "registro_visivel": bool(registro_visivel),
+            }
         except Exception:
-            return "claro"
+            return padrao
 
-    def _salvar_tema(self) -> None:
-        """Salva a preferência de tema manualmente em formato TOML."""
+    def _salvar_config_interface(self) -> None:
+        """Grava as preferências de interface correntes em ``config.toml``.
+
+        Sempre escreve as duas chaves juntas, a partir do estado atual da
+        janela — assim, alternar o tema nunca apaga a preferência do
+        registro salva antes, e vice-versa.
+        """
         arquivo = os.path.join(pasta_do_programa(), "config.toml")
         try:
             with open(arquivo, "w", encoding="utf-8") as f:
                 f.write("[interface]\n")
                 f.write(f'tema = "{self._tema}"\n')
+                f.write(f"registro_visivel = {str(self._registro_visivel).lower()}\n")
         except OSError:
-            pass  # Ignora se for somente leitura
+            pass  # Ignora se a pasta for somente leitura
 
     # ------------------------------------------------------------------
     # Aparencia
@@ -705,7 +734,7 @@ class AplicacaoSimulador(tk.Tk):
         self._botao_tema.configure(
             text="Tema claro" if self._tema == "escuro" else "Tema escuro"
         )
-        self._salvar_tema()
+        self._salvar_config_interface()
         self._redesenhar()
 
     def _aplicar_cores_nativas(self) -> None:
@@ -1229,6 +1258,16 @@ class AplicacaoSimulador(tk.Tk):
 
     def _alternar_registro(self) -> None:
         self._registro_visivel = not self._registro_visivel
+        self._aplicar_visibilidade_registro()
+        self._salvar_config_interface()
+
+    def _aplicar_visibilidade_registro(self) -> None:
+        """Mostra ou oculta o cartão de registro conforme ``_registro_visivel``.
+
+        Usado tanto pelo botão "Ocultar/Mostrar registro" quanto na
+        inicialização da janela, para que a última escolha do usuário seja
+        respeitada assim que a aplicação abre.
+        """
         if self._registro_visivel:
             self._cartao_registro.grid()
             self.rowconfigure(4, weight=2)
