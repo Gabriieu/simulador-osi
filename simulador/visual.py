@@ -145,8 +145,18 @@ VELOCIDADES: Tuple[Tuple[str, int], ...] = (
     ("Rápida", 150),
 )
 
-#: Largura a partir da qual as tres colunas cabem lado a lado.
+#: Largura, em pixels a 96 dpi, a partir da qual as tres colunas cabem lado a
+#: lado. Na janela ela e multiplicada pela escala de tela do sistema.
 LARGURA_MODO_AMPLO = 1360
+
+#: Divisao da altura entre a area central e o registro de eventos. O registro
+#: e uma faixa de consulta: fica perto do minimo e cede espaco ao resto.
+PESO_AREA_CENTRAL = 5
+PESO_REGISTRO = 1
+ALTURA_MINIMA_CENTRO = 150
+#: Altura da janela (a 96 dpi) abaixo da qual o subtitulo da marca some.
+ALTURA_MINIMA_SUBTITULO = 860
+ALTURA_MINIMA_REGISTRO = 118
 
 _FAMILIAS_UI = ("Segoe UI", "Inter", "SF Pro Text", "Helvetica Neue", "Ubuntu", "DejaVu Sans")
 _FAMILIAS_MONO = ("Cascadia Mono", "Consolas", "SF Mono", "Menlo", "DejaVu Sans Mono")
@@ -198,6 +208,14 @@ def familia_disponivel(candidatas: Sequence[str], reserva: str) -> str:
         if nome.lower() in instaladas:
             return nome
     return reserva
+
+
+def escala_da_tela(janela: tk.Misc) -> float:
+    """Fator de escala do sistema: 1.0 em 96 dpi, 1.25 em 125% e assim por diante."""
+    try:
+        return max(1.0, float(janela.tk.call("tk", "scaling")) * 72 / 96)
+    except (tk.TclError, AttributeError, TypeError, ValueError):
+        return 1.0
 
 
 def retangulo(canvas: tk.Canvas, x0, y0, x1, y1, raio: float = 8, **opcoes) -> int:
@@ -289,21 +307,270 @@ class Cartao(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-        topo = ttk.Frame(self, style="CartaoTopo.TFrame", padding=(14, 9))
+        topo = ttk.Frame(self, style="CartaoTopo.TFrame", padding=(14, 7))
         topo.grid(row=0, column=0, sticky="ew")
         topo.columnconfigure(1, weight=1)
+        self._topo = topo
 
-        ttk.Label(topo, text=titulo, style="CartaoTitulo.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
+        self._titulo = ttk.Label(topo, text=titulo, style="CartaoTitulo.TLabel")
+        self._titulo.grid(row=0, column=0, sticky="w")
         self.rotulo_nota = ttk.Label(topo, text=nota, style="CartaoNota.TLabel")
         self.rotulo_nota.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         self.acoes = ttk.Frame(topo, style="CartaoTopo.TFrame")
         self.acoes.grid(row=0, column=2, sticky="e")
+        topo.bind("<Configure>", self._ajustar_nota)
 
-        self.corpo = ttk.Frame(self, style="CartaoCorpo.TFrame", padding=(14, 12))
+        self.corpo = ttk.Frame(self, style="CartaoCorpo.TFrame", padding=(14, 10))
         self.corpo.grid(row=1, column=0, sticky="nsew")
+
+    def _ajustar_nota(self, _evento=None) -> None:
+        """Oculta a nota quando o cabeçalho é estreito demais para ela inteira.
+
+        Uma nota cortada no meio da palavra é pior do que nenhuma nota.
+        """
+        largura = self._topo.winfo_width()
+        if largura <= 1 or not self.rotulo_nota.cget("text"):
+            return
+        necessario = (
+            self._titulo.winfo_reqwidth()
+            + self.rotulo_nota.winfo_reqwidth()
+            + self.acoes.winfo_reqwidth()
+            + 28  # preenchimento lateral do cabeçalho
+            + 10  # espaço entre o título e a nota
+        )
+        if necessario > largura:
+            self.rotulo_nota.grid_remove()
+        else:
+            self.rotulo_nota.grid()
+
+
+class LinhasFlexiveis(ttk.Frame):
+    """Quadro que passa os itens para a linha de baixo quando não cabem.
+
+    Os itens são filhos deste quadro e entram em ordem; ao faltar largura, o
+    seguinte começa uma nova linha. Um item ``a_direita`` encosta na borda
+    direita da linha em que cair, e um separador só aparece entre dois itens
+    da mesma linha. A disposição é recalculada quando a largura muda ou
+    quando algum item muda de tamanho, então nenhum botão sai da janela.
+    """
+
+    def __init__(
+        self,
+        pai: tk.Misc,
+        estilo: str,
+        margem_x: int = 0,
+        margem_y: int = 0,
+        folga: int = 8,
+        folga_linha: int = 8,
+    ) -> None:
+        super().__init__(pai, style=estilo, padding=(margem_x, margem_y))
+        self._estilo_linha = estilo
+        self._margem_x = margem_x
+        self._folga = folga
+        self._folga_linha = folga_linha
+        self._itens: List[Tuple[tk.Widget, bool, bool]] = []
+        self._linhas: List[ttk.Frame] = []
+        self._disposicao: Optional[tuple] = None
+        self._agendado: Optional[str] = None
+        self.columnconfigure(0, weight=1)
+        self.bind("<Configure>", self._agendar, add="+")
+
+    def adicionar(
+        self, widget: tk.Widget, a_direita: bool = False, separador: bool = False
+    ) -> None:
+        """Registra um item, que deve ter sido criado com este quadro como pai."""
+        self._itens.append((widget, a_direita, separador))
+        widget.bind("<Configure>", self._agendar, add="+")
+        self._agendar()
+
+    def _agendar(self, _evento=None) -> None:
+        if self._agendado is None:
+            self._agendado = self.after_idle(self.reorganizar)
+
+    def _quadro_da_linha(self, indice: int) -> ttk.Frame:
+        while len(self._linhas) <= indice:
+            self._linhas.append(ttk.Frame(self, style=self._estilo_linha))
+        return self._linhas[indice]
+
+    def reorganizar(self) -> None:
+        self._agendado = None
+        largura = self.winfo_width() - 2 * self._margem_x
+        # Enquanto a janela ainda nao tem tamanho, tudo cabe numa linha so.
+        limite = largura if largura > 1 else 10**6
+
+        linhas: List[List[Tuple[tk.Widget, bool, bool]]] = [[]]
+        usado = 0
+        for item in self._itens:
+            # Cada item leva consigo a folga que o separa do vizinho, como o
+            # empacotamento abaixo faz; contar so as folgas *entre* itens
+            # subestima a linha e deixa o ultimo item sem lugar.
+            pedido = item[0].winfo_reqwidth() + self._folga
+            atual = linhas[-1]
+            if atual and usado + pedido > limite:
+                linhas.append([item])
+                usado = pedido
+            else:
+                usado += pedido
+                atual.append(item)
+        for linha in linhas:  # separador na ponta de uma linha nao separa nada
+            while linha and linha[0][2]:
+                linha.pop(0)
+            while linha and linha[-1][2]:
+                linha.pop()
+        linhas = [linha for linha in linhas if linha]
+
+        disposicao = tuple(tuple(id(item[0]) for item in linha) for linha in linhas)
+        if disposicao == self._disposicao:
+            return
+        self._disposicao = disposicao
+
+        # Desempacota tudo antes de reempacotar: a ordem de empacotamento de um
+        # quadro nao muda sozinha quando um item volta a ele.
+        for widget, _direita, _separador in self._itens:
+            widget.pack_forget()
+        for indice, linha in enumerate(linhas):
+            quadro = self._quadro_da_linha(indice)
+            quadro.grid(
+                row=indice,
+                column=0,
+                sticky="ew",
+                pady=(self._folga_linha if indice else 0, 0),
+            )
+            esquerda = [i for i in linha if not i[1]]
+            direita = [i for i in linha if i[1]]
+            for widget, _d, separador in esquerda:
+                widget.pack(
+                    in_=quadro,
+                    side="left",
+                    fill="y" if separador else "none",
+                    padx=(0, self._folga),
+                )
+                widget.lift()
+            for widget, _d, separador in reversed(direita):
+                widget.pack(in_=quadro, side="right", padx=(self._folga, 0))
+                widget.lift()
+        for sobra in self._linhas[len(linhas):]:
+            sobra.grid_remove()
+
+
+class AreaRolavel(ttk.Frame):
+    """Área com rolagem vertical que só aparece quando o conteúdo não cabe.
+
+    O conteúdo (``self.conteudo``) recebe, no mínimo, a altura da área
+    visível, de modo que os cartões elásticos continuam ocupando a janela
+    inteira, e passa a rolar quando o que ele pede é maior do que isso. A
+    área pede à janela a altura do conteúdo, mas pode ser encolhida por ela.
+    """
+
+    #: Pixels por passo da roda do mouse.
+    PASSO = 24
+    _CLASSES_COM_ROLAGEM_PROPRIA = ("Text", "Treeview", "Listbox", "TCombobox")
+
+    def __init__(self, pai: tk.Misc, padding=0) -> None:
+        super().__init__(pai)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self._canvas = tk.Canvas(
+            self,
+            background=PALETA["fundo"],
+            highlightthickness=0,
+            borderwidth=0,
+            yscrollincrement=self.PASSO,
+        )
+        self._barra = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._barra.set)
+        self._canvas.grid(row=0, column=0, sticky="nsew")
+
+        self.conteudo = ttk.Frame(self._canvas, padding=padding)
+        self._janela = self._canvas.create_window(0, 0, window=self.conteudo, anchor="nw")
+        self._barra_visivel = False
+        self._estado: Optional[Tuple[int, int, int]] = None
+        self._ajuste_agendado = False
+        self._sem_rolagem: set = set()
+
+        self._canvas.bind("<Configure>", self.verificar)
+        self.conteudo.bind("<Configure>", self.verificar)
+
+    def pintar(self) -> None:
+        self._canvas.configure(background=PALETA["fundo"])
+
+    def ignorar_roda(self, widget: tk.Widget) -> None:
+        """A roda do mouse sobre ``widget`` nao rola a area (ele a usa de outro modo)."""
+        self._sem_rolagem.add(widget)
+
+    def ligar_roda(self) -> None:
+        for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.bind_all(evento, self._ao_rolar, add="+")
+
+    def verificar(self, _evento=None) -> None:
+        """Pede a conferencia do tamanho do conteudo, feita quando a fila esvazia.
+
+        Precisa ser chamada quando o conteudo pode ter mudado de altura sem que
+        nenhum widget desta area receba ``<Configure>`` (por exemplo, ao
+        reorganizar os cartoes ou quebrar um texto em mais linhas).
+        """
+        if not self._ajuste_agendado:
+            self._ajuste_agendado = True
+            self.after_idle(self._ajustar)
+
+    def _ajustar(self) -> None:
+        self._ajuste_agendado = False
+        largura = self._canvas.winfo_width()
+        altura = self._canvas.winfo_height()
+        if altura <= 1:
+            return
+        pedida = self.conteudo.winfo_reqheight()
+        if (largura, altura, pedida) == self._estado:
+            return
+        self._estado = (largura, altura, pedida)
+
+        self._canvas.configure(height=pedida)
+        # O conteudo so tem a altura forcada quando precisa ser esticado ate o
+        # fim da area visivel. Quando ele e maior, altura 0 o deixa no tamanho
+        # que pede:
+        # uma altura forcada esconderia o encolhimento do conteudo (nenhum
+        # ``<Configure>`` chegaria) e a area ficaria com rolagem sobrando.
+        self._canvas.itemconfigure(
+            self._janela, width=largura, height=altura if pedida < altura else 0
+        )
+        self._canvas.configure(scrollregion=(0, 0, largura, max(altura, pedida)))
+
+        precisa = pedida > altura
+        if precisa != self._barra_visivel:
+            self._barra_visivel = precisa
+            if precisa:
+                self._barra.grid(row=0, column=1, sticky="ns")
+            else:
+                self._barra.grid_remove()
+                self._canvas.yview_moveto(0)
+        # Mexer na geometria pode mudar o que os filhos pedem: confere de novo.
+        # A conferencia seguinte encerra sozinha se nada mudou.
+        self.verificar()
+
+    def _contem(self, widget: tk.Misc) -> bool:
+        while widget is not None:
+            if widget is self:
+                return True
+            widget = widget.master
+        return False
+
+    def _ao_rolar(self, evento: tk.Event) -> None:
+        if not self._barra_visivel:
+            return
+        try:
+            alvo = self.winfo_containing(evento.x_root, evento.y_root)
+        except (KeyError, tk.TclError):  # lista suspensa de um combobox aberto
+            return
+        if (
+            alvo is None
+            or alvo in self._sem_rolagem
+            or alvo.winfo_class() in self._CLASSES_COM_ROLAGEM_PROPRIA
+            or not self._contem(alvo)
+        ):
+            return
+        subindo = getattr(evento, "num", None) == 4 or getattr(evento, "delta", 0) > 0
+        self._canvas.yview_scroll(-3 if subindo else 3, "units")
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +609,15 @@ class AplicacaoSimulador(tk.Tk):
         PALETA.update(TEMA_ESCURO if self._tema == "escuro" else TEMA_CLARO)
         COR_CAMADA.update(CAMADAS_ESCURO if self._tema == "escuro" else CAMADAS_CLARO)
 
+        # As larguras de referencia (breakpoints, alturas minimas) foram
+        # pensadas para 96 dpi; em telas ampliadas as fontes crescem e os
+        # mesmos elementos precisam de mais pixels.
+        self._escala_ui = escala_da_tela(self)
+        self._limite_amplo = int(LARGURA_MODO_AMPLO * self._escala_ui)
+        self._medidores: Dict[tuple, tkfont.Font] = {}
+
         self._modo_layout = ""
+        self._subtitulo_visivel: Optional[bool] = None
         self._registro_visivel = config_interface["registro_visivel"]
         self._mapa_zoom = 1.0
         self._mapa_pan_x = 0.0
@@ -599,7 +874,9 @@ class AplicacaoSimulador(tk.Tk):
             bordercolor=[("disabled", PALETA["inativo"])],
         )
 
-        estilo.configure("Icone.TButton", padding=(9, 5), font=self.fonte_base)
+        # ``width=0`` desliga a largura minima de 11 caracteres do tema, que
+        # transformaria os botoes "-", "+" e "ajustar" em blocos largos.
+        estilo.configure("Icone.TButton", padding=(9, 5), font=self.fonte_base, width=0)
         estilo.configure("Discreto.TButton", padding=(10, 5), font=self.fonte_rotulo)
 
         # Controle segmentado (radiobuttons em forma de abas)
@@ -748,6 +1025,7 @@ class AplicacaoSimulador(tk.Tk):
             canvas.configure(background=PALETA["painel"])
         for divisor in self._divisores:
             divisor.configure(background=PALETA["borda"])
+        self._rolagem.pintar()
         for texto in (self._texto_eficiencia, self._texto_registro):
             texto.configure(
                 background=PALETA["painel"],
@@ -771,9 +1049,14 @@ class AplicacaoSimulador(tk.Tk):
     def _construir_layout(self) -> None:
         self._divisores: List[tk.Frame] = []
 
+        # A linha 2 (area central) e a 4 (registro) dividem a altura que sobra;
+        # os pesos da linha 4 sao definidos em _aplicar_visibilidade_registro.
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=3)
-        self.rowconfigure(4, weight=2)
+        self.rowconfigure(
+            2,
+            weight=PESO_AREA_CENTRAL,
+            minsize=int(ALTURA_MINIMA_CENTRO * self._escala_ui),
+        )
 
         self._construir_barra_superior()
 
@@ -781,8 +1064,12 @@ class AplicacaoSimulador(tk.Tk):
         divisor.grid(row=1, column=0, sticky="ew")
         self._divisores.append(divisor)
 
-        self._area_central = ttk.Frame(self, padding=(14, 14, 14, 0))
-        self._area_central.grid(row=2, column=0, sticky="nsew")
+        # Quando o conteudo nao cabe na altura da janela, a area central rola
+        # em vez de ter cartoes cortados ou empurrados para fora da tela.
+        self._rolagem = AreaRolavel(self, padding=(14, 14, 14, 0))
+        self._rolagem.grid(row=2, column=0, sticky="nsew")
+        self._rolagem.ligar_roda()
+        self._area_central = self._rolagem.conteudo
 
         self._coluna_mapa = ttk.Frame(self._area_central)
         self._coluna_pilhas = ttk.Frame(self._area_central)
@@ -798,12 +1085,13 @@ class AplicacaoSimulador(tk.Tk):
     # -- barra superior ----------------------------------------------------
 
     def _construir_barra_superior(self) -> None:
-        barra = ttk.Frame(self, style="Barra.TFrame", padding=(16, 12))
+        barra = LinhasFlexiveis(
+            self, "Barra.TFrame", margem_x=16, margem_y=12, folga=14, folga_linha=10
+        )
         barra.grid(row=0, column=0, sticky="ew")
-        barra.columnconfigure(5, weight=1)
+        self._barra_superior = barra
 
-        marca = ttk.Frame(barra, style="Barra.TFrame")
-        marca.grid(row=0, column=0, sticky="w", padx=(0, 22))
+        marca = ttk.Frame(barra, style="Barra.TFrame", padding=(0, 0, 8, 0))
         ttk.Label(marca, text="Simulador do modelo OSI", style="Marca.TLabel").grid(
             row=0, column=0, sticky="w"
         )
@@ -813,9 +1101,9 @@ class AplicacaoSimulador(tk.Tk):
             style="MarcaNota.TLabel",
         )
         self._rotulo_subtitulo.grid(row=1, column=0, sticky="w")
+        barra.adicionar(marca)
 
         seletor = ttk.Frame(barra, style="Barra.TFrame")
-        seletor.grid(row=0, column=1, sticky="w")
         ttk.Label(seletor, text="Cenário", style="Barra.TLabel").grid(
             row=0, column=0, sticky="w", padx=(0, 8)
         )
@@ -836,20 +1124,22 @@ class AplicacaoSimulador(tk.Tk):
             "<<ComboboxSelected>>", lambda _e: self._carregar_cenario()
         )
 
+        barra.adicionar(seletor)
+
         botao_topologia = ttk.Button(
             barra, text="Abrir topologia", command=self._escolher_topologia
         )
-        botao_topologia.grid(row=0, column=2, padx=(12, 8))
         Dica(botao_topologia, "Carrega outro arquivo JSON de topologia", self.fonte_mini)
+        barra.adicionar(botao_topologia)
 
         botao_tabelas = ttk.Button(
             barra, text="Tabelas de encaminhamento", command=self._mostrar_tabelas
         )
-        botao_tabelas.grid(row=0, column=3)
         Dica(botao_tabelas, "Rotas calculadas para cada roteador", self.fonte_mini)
+        barra.adicionar(botao_tabelas)
 
         direita = ttk.Frame(barra, style="Barra.TFrame")
-        direita.grid(row=0, column=6, sticky="e")
+        barra.adicionar(direita, a_direita=True)
 
         ttk.Label(direita, text="Exibir pilha", style="Barra.TLabel").pack(
             side="left", padx=(0, 8)
@@ -919,7 +1209,8 @@ class AplicacaoSimulador(tk.Tk):
             cursor="hand2",
         )
         self._canvas_mapa.grid(row=0, column=0, sticky="nsew")
-        self._canvas_mapa.bind("<Configure>", lambda _e: self._desenhar_mapa())
+        self._ligar_desenho(self._canvas_mapa, self._desenhar_mapa)
+        self._rolagem.ignorar_roda(self._canvas_mapa)  # a roda aqui e o zoom
         self._canvas_mapa.bind("<ButtonPress-1>", self._iniciar_arrasto)
         self._canvas_mapa.bind("<B1-Motion>", self._arrastar)
         self._canvas_mapa.bind("<ButtonRelease-1>", self._encerrar_arrasto)
@@ -936,21 +1227,18 @@ class AplicacaoSimulador(tk.Tk):
         self._var_enlace = tk.StringVar()
         ttk.Label(corpo, text="Enlace", style="Rotulo.TLabel").grid(row=0, column=0, sticky="w")
         self._combo_enlace = ttk.Combobox(
-            corpo, textvariable=self._var_enlace, state="readonly"
+            corpo, textvariable=self._var_enlace, state="readonly", width=10
         )
         self._combo_enlace.grid(row=1, column=0, sticky="ew", pady=(3, 10))
 
-        botoes = ttk.Frame(corpo, style="CartaoCorpo.TFrame")
+        botoes = LinhasFlexiveis(corpo, "CartaoCorpo.TFrame", folga=8, folga_linha=8)
         botoes.grid(row=2, column=0, sticky="ew")
-        ttk.Button(botoes, text="Derrubar enlace", command=self._derrubar_enlace).pack(
-            side="left"
-        )
-        ttk.Button(botoes, text="Injetar erro de bit", command=self._injetar_erro).pack(
-            side="left", padx=8
-        )
-        ttk.Button(botoes, text="Restaurar rede", command=self._restaurar_rede).pack(
-            side="left"
-        )
+        for texto, comando in (
+            ("Derrubar enlace", self._derrubar_enlace),
+            ("Injetar erro de bit", self._injetar_erro),
+            ("Restaurar rede", self._restaurar_rede),
+        ):
+            botoes.adicionar(ttk.Button(botoes, text=texto, command=comando))
 
         self._rotulo_falhas = ttk.Label(
             corpo,
@@ -960,6 +1248,7 @@ class AplicacaoSimulador(tk.Tk):
             justify="left",
         )
         self._rotulo_falhas.grid(row=3, column=0, sticky="w", pady=(10, 0))
+        self._quebrar_no_espaco(self._rotulo_falhas, corpo, margem=28)
 
     # -- coluna 2: pilhas --------------------------------------------------
 
@@ -975,10 +1264,10 @@ class AplicacaoSimulador(tk.Tk):
         cartao.corpo.rowconfigure(0, weight=1)
 
         self._canvas_pilhas = tk.Canvas(
-            cartao.corpo, background=PALETA["painel"], highlightthickness=0
+            cartao.corpo, background=PALETA["painel"], highlightthickness=0, height=190
         )
         self._canvas_pilhas.grid(row=0, column=0, sticky="nsew")
-        self._canvas_pilhas.bind("<Configure>", lambda _e: self._desenhar_pilhas())
+        self._ligar_desenho(self._canvas_pilhas, self._desenhar_pilhas)
 
         rodape = ttk.Frame(cartao.corpo, style="CartaoCorpo.TFrame")
         rodape.grid(row=1, column=0, sticky="ew", pady=(10, 0))
@@ -991,16 +1280,19 @@ class AplicacaoSimulador(tk.Tk):
             justify="left",
         )
         self._rotulo_passo.grid(row=0, column=0, sticky="w")
+        self._quebrar_no_espaco(self._rotulo_passo, rodape)
 
     # -- coluna 3: parametros, unidade, enderecos, eficiencia --------------
 
     def _construir_coluna_dados(self) -> None:
-        coluna = self._coluna_dados
+        # Os quatro cartoes trocam de coluna conforme o modo do layout, por
+        # isso nascem no quadro central e sao encaixados por _aplicar_layout.
+        pai = self._area_central
 
-        self._cartao_parametros = Cartao(coluna, "Parâmetros da simulação")
-        self._cartao_unidade = Cartao(coluna, "Unidade de dados", "cabeçalhos e carga útil")
-        self._cartao_enderecos = Cartao(coluna, "Endereços vigentes", "lógicos e físicos")
-        self._cartao_eficiencia = Cartao(coluna, "Custo do empilhamento")
+        self._cartao_parametros = Cartao(pai, "Parâmetros da simulação")
+        self._cartao_unidade = Cartao(pai, "Unidade de dados", "cabeçalhos e carga útil")
+        self._cartao_enderecos = Cartao(pai, "Endereços vigentes", "lógicos e físicos")
+        self._cartao_eficiencia = Cartao(pai, "Custo do empilhamento")
 
         self._construir_formulario(self._cartao_parametros.corpo)
 
@@ -1008,10 +1300,10 @@ class AplicacaoSimulador(tk.Tk):
         corpo_unidade.columnconfigure(0, weight=1)
         corpo_unidade.rowconfigure(0, weight=1)
         self._canvas_unidade = tk.Canvas(
-            corpo_unidade, background=PALETA["painel"], highlightthickness=0, height=110
+            corpo_unidade, background=PALETA["painel"], highlightthickness=0, height=100
         )
         self._canvas_unidade.grid(row=0, column=0, sticky="nsew")
-        self._canvas_unidade.bind("<Configure>", lambda _e: self._desenhar_unidade())
+        self._ligar_desenho(self._canvas_unidade, self._desenhar_unidade)
 
         corpo_enderecos = self._cartao_enderecos.corpo
         corpo_enderecos.columnconfigure(0, weight=1)
@@ -1020,14 +1312,15 @@ class AplicacaoSimulador(tk.Tk):
             corpo_enderecos, background=PALETA["painel"], highlightthickness=0, height=118
         )
         self._canvas_enderecos.grid(row=0, column=0, sticky="nsew")
-        self._canvas_enderecos.bind("<Configure>", lambda _e: self._desenhar_enderecos())
+        self._ligar_desenho(self._canvas_enderecos, self._desenhar_enderecos)
 
         corpo_eficiencia = self._cartao_eficiencia.corpo
         corpo_eficiencia.columnconfigure(0, weight=1)
         corpo_eficiencia.rowconfigure(0, weight=1)
         self._texto_eficiencia = tk.Text(
             corpo_eficiencia,
-            height=9,
+            height=4,
+            width=10,
             font=self.fonte_mono,
             background=PALETA["painel"],
             foreground=PALETA["tinta"],
@@ -1046,6 +1339,10 @@ class AplicacaoSimulador(tk.Tk):
     def _construir_formulario(self, corpo: ttk.Frame) -> None:
         corpo.columnconfigure(0, weight=1, uniform="campos")
         corpo.columnconfigure(1, weight=1, uniform="campos")
+        # (grupo, rotulo, linha, coluna, colunas ocupadas) de cada campo, para
+        # poder empilha-los quando a coluna dupla fica estreita demais.
+        self._campos_formulario: List[Tuple[ttk.Frame, ttk.Label, int, int, int]] = []
+        self._formulario_empilhado = False
 
         self._var_origem = tk.StringVar()
         self._var_destino = tk.StringVar()
@@ -1060,55 +1357,59 @@ class AplicacaoSimulador(tk.Tk):
             "Computador de origem",
             0,
             0,
-            lambda pai: ttk.Combobox(pai, textvariable=self._var_origem, state="readonly"),
+            lambda pai: ttk.Combobox(
+                pai, textvariable=self._var_origem, state="readonly", width=8
+            ),
         )
         self._combo_destino = self._campo(
             corpo,
             "Endereço lógico de destino",
             0,
             1,
-            lambda pai: ttk.Combobox(pai, textvariable=self._var_destino),
+            lambda pai: ttk.Combobox(pai, textvariable=self._var_destino, width=8),
         )
         self._campo(
             corpo,
             "Processo de origem",
             1,
             0,
-            lambda pai: ttk.Entry(pai, textvariable=self._var_processo_origem),
+            lambda pai: ttk.Entry(pai, textvariable=self._var_processo_origem, width=8),
         )
         self._campo(
             corpo,
             "Processo de destino",
             1,
             1,
-            lambda pai: ttk.Entry(pai, textvariable=self._var_processo_destino),
+            lambda pai: ttk.Entry(pai, textvariable=self._var_processo_destino, width=8),
         )
         self._campo(
             corpo,
             "Porta de origem",
             2,
             0,
-            lambda pai: ttk.Entry(pai, textvariable=self._var_porta_origem),
+            lambda pai: ttk.Entry(pai, textvariable=self._var_porta_origem, width=8),
         )
         self._campo(
             corpo,
             "Porta de destino",
             2,
             1,
-            lambda pai: ttk.Entry(pai, textvariable=self._var_porta_destino),
+            lambda pai: ttk.Entry(pai, textvariable=self._var_porta_destino, width=8),
         )
         self._campo(
             corpo,
             "Mensagem",
             3,
             0,
-            lambda pai: ttk.Entry(pai, textvariable=self._var_mensagem),
+            lambda pai: ttk.Entry(pai, textvariable=self._var_mensagem, width=8),
             colspan=2,
         )
 
         rodape = ttk.Frame(corpo, style="CartaoCorpo.TFrame")
         rodape.grid(row=4, column=0, columnspan=2, sticky="ew")
         rodape.columnconfigure(0, weight=1)
+        self._rodape_formulario = rodape
+        corpo.bind("<Configure>", lambda _e: self._ajustar_formulario(corpo), add="+")
         self._rotulo_tamanho = ttk.Label(rodape, text="", style="Fraco.TLabel")
         self._rotulo_tamanho.grid(row=0, column=0, sticky="w")
         ttk.Button(
@@ -1116,6 +1417,31 @@ class AplicacaoSimulador(tk.Tk):
         ).grid(row=0, column=1, sticky="e")
 
         self._var_mensagem.trace_add("write", lambda *_a: self._atualizar_tamanho_mensagem())
+
+    def _ajustar_formulario(self, corpo: ttk.Frame) -> None:
+        """Empilha os campos numa coluna so quando duas nao comportam os rotulos."""
+        util = corpo.winfo_width() - 28  # menos o preenchimento do cartao
+        if util <= 1 or not self._campos_formulario:
+            return
+        maior_rotulo = max(r.winfo_reqwidth() for _g, r, _l, _c, _s in self._campos_formulario)
+        empilhar = (util - 12) / 2 < maior_rotulo
+        if empilhar == self._formulario_empilhado:
+            return
+        self._formulario_empilhado = empilhar
+        for posicao, (grupo, _r, linha, coluna, colspan) in enumerate(self._campos_formulario):
+            if empilhar:
+                grupo.grid_configure(row=posicao, column=0, columnspan=2, padx=0)
+            else:
+                grupo.grid_configure(
+                    row=linha,
+                    column=coluna,
+                    columnspan=colspan,
+                    padx=(0, 6) if coluna == 0 and colspan == 1 else (6 if coluna else 0, 0),
+                )
+        self._rodape_formulario.grid_configure(
+            row=len(self._campos_formulario) if empilhar else 4
+        )
+        self._rolagem.verificar()
 
     def _campo(
         self,
@@ -1137,7 +1463,9 @@ class AplicacaoSimulador(tk.Tk):
             pady=(0, 10),
         )
         grupo.columnconfigure(0, weight=1)
-        ttk.Label(grupo, text=rotulo, style="Rotulo.TLabel").grid(row=0, column=0, sticky="w")
+        etiqueta = ttk.Label(grupo, text=rotulo, style="Rotulo.TLabel")
+        etiqueta.grid(row=0, column=0, sticky="w")
+        self._campos_formulario.append((grupo, etiqueta, linha, coluna, colspan))
         widget = criar(grupo)
         widget.grid(row=1, column=0, sticky="ew", pady=(3, 0))
         widget.bind("<Return>", lambda _e: self._simular())
@@ -1146,12 +1474,13 @@ class AplicacaoSimulador(tk.Tk):
     # -- controles e registro ---------------------------------------------
 
     def _construir_controles(self) -> None:
-        barra = ttk.Frame(self, style="Barra.TFrame", padding=(16, 10))
-        barra.grid(row=3, column=0, sticky="ew", pady=(14, 0))
-        barra.columnconfigure(7, weight=1)
+        barra = LinhasFlexiveis(
+            self, "Barra.TFrame", margem_x=16, margem_y=10, folga=14, folga_linha=8
+        )
+        barra.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        self._barra_controles = barra
 
         transporte = ttk.Frame(barra, style="Barra.TFrame")
-        transporte.grid(row=0, column=0, sticky="w")
         self._botao_passo = ttk.Button(
             transporte, text="Passo", style="Acao.TButton", command=self._passo
         )
@@ -1171,30 +1500,34 @@ class AplicacaoSimulador(tk.Tk):
         )
         self._botao_reiniciar.pack(side="left", padx=8)
         Dica(self._botao_reiniciar, "Volta ao passo 0 · Ctrl+R", self.fonte_mini)
+        barra.adicionar(transporte)
 
-        ttk.Separator(barra, orient="vertical").grid(row=0, column=1, sticky="ns", padx=14)
+        barra.adicionar(ttk.Separator(barra, orient="vertical"), separador=True)
 
-        ttk.Label(barra, text="Velocidade", style="Barra.TLabel").grid(row=0, column=2)
+        velocidade = ttk.Frame(barra, style="Barra.TFrame")
+        ttk.Label(velocidade, text="Velocidade", style="Barra.TLabel").pack(side="left")
         self._var_velocidade = tk.IntVar(value=VELOCIDADES[1][1])
-        self._segmentado(barra, self._var_velocidade, VELOCIDADES).grid(
-            row=0, column=3, padx=(10, 0)
+        self._segmentado(velocidade, self._var_velocidade, VELOCIDADES).pack(
+            side="left", padx=(10, 0)
         )
+        barra.adicionar(velocidade)
 
-        ttk.Separator(barra, orient="vertical").grid(row=0, column=4, sticky="ns", padx=14)
+        barra.adicionar(ttk.Separator(barra, orient="vertical"), separador=True)
 
-        self._rotulo_progresso = ttk.Label(barra, text="Passo 0 de 0", style="Barra.TLabel")
-        self._rotulo_progresso.grid(row=0, column=5, sticky="w")
+        andamento = ttk.Frame(barra, style="Barra.TFrame")
+        self._rotulo_progresso = ttk.Label(andamento, text="Passo 0 de 0", style="Barra.TLabel")
+        self._rotulo_progresso.pack(side="left")
         self._progresso = ttk.Progressbar(
-            barra,
+            andamento,
             style="Progresso.Horizontal.TProgressbar",
             mode="determinate",
-            length=200,
+            length=int(160 * self._escala_ui),
             maximum=1,
         )
-        self._progresso.grid(row=0, column=6, sticky="w", padx=(12, 0))
+        self._progresso.pack(side="left", padx=(12, 0))
+        barra.adicionar(andamento)
 
         acoes = ttk.Frame(barra, style="Barra.TFrame")
-        acoes.grid(row=0, column=8, sticky="e")
         self._botao_registro = ttk.Button(
             acoes, text="Ocultar registro", style="Discreto.TButton", command=self._alternar_registro
         )
@@ -1202,12 +1535,13 @@ class AplicacaoSimulador(tk.Tk):
         ttk.Button(acoes, text="Salvar registro", command=self._salvar_registro).pack(
             side="left"
         )
+        barra.adicionar(acoes, a_direita=True)
 
     def _construir_registro(self) -> None:
         self._cartao_registro = Cartao(
             self, "Registro de eventos", "uma linha por evento do encapsulamento"
         )
-        self._cartao_registro.grid(row=4, column=0, sticky="nsew", padx=14, pady=(12, 0))
+        self._cartao_registro.grid(row=4, column=0, sticky="nsew", padx=14, pady=(10, 0))
         corpo = self._cartao_registro.corpo
         corpo.columnconfigure(0, weight=1)
         corpo.rowconfigure(0, weight=1)
@@ -1220,7 +1554,8 @@ class AplicacaoSimulador(tk.Tk):
             relief="flat",
             borderwidth=0,
             wrap="none",
-            height=8,
+            height=3,
+            width=10,
             spacing1=2,
             spacing3=2,
             state="disabled",
@@ -1243,18 +1578,26 @@ class AplicacaoSimulador(tk.Tk):
         self._texto_registro.tag_configure("futuro", foreground=PALETA["inativo"])
 
     def _construir_barra_estado(self) -> None:
-        barra = ttk.Frame(self, style="Estado.TFrame", padding=(16, 7))
-        barra.grid(row=5, column=0, sticky="ew", pady=(12, 0))
-        barra.columnconfigure(2, weight=1)
-
-        self._ponto_estado = ttk.Label(
-            barra, text="●", style="Estado.TLabel", foreground=PALETA["entrega"]
+        barra = LinhasFlexiveis(
+            self, "Estado.TFrame", margem_x=16, margem_y=7, folga=16, folga_linha=2
         )
-        self._ponto_estado.grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self._barra_estado = ttk.Label(barra, text="Pronto.", style="Estado.TLabel")
-        self._barra_estado.grid(row=0, column=1, sticky="w")
+        barra.grid(row=5, column=0, sticky="ew", pady=(8, 0))
+
+        situacao = ttk.Frame(barra, style="Estado.TFrame")
+        self._ponto_estado = ttk.Label(
+            situacao, text="●", style="Estado.TLabel", foreground=PALETA["entrega"]
+        )
+        self._ponto_estado.pack(side="left", padx=(0, 8))
+        self._barra_estado = ttk.Label(
+            situacao, text="Pronto.", style="Estado.TLabel", justify="left"
+        )
+        self._barra_estado.pack(side="left")
+        barra.adicionar(situacao)
+        # Mensagens longas quebram na largura da janela em vez de a estourarem.
+        self._quebrar_no_espaco(self._barra_estado, barra, margem=32 + 30)
+
         self._rotulo_contexto = ttk.Label(barra, text="", style="Estado.TLabel")
-        self._rotulo_contexto.grid(row=0, column=3, sticky="e")
+        barra.adicionar(self._rotulo_contexto, a_direita=True)
 
     def _alternar_registro(self) -> None:
         self._registro_visivel = not self._registro_visivel
@@ -1270,11 +1613,16 @@ class AplicacaoSimulador(tk.Tk):
         """
         if self._registro_visivel:
             self._cartao_registro.grid()
-            self.rowconfigure(4, weight=2)
+            self.rowconfigure(
+                4,
+                weight=PESO_REGISTRO,
+                minsize=int(ALTURA_MINIMA_REGISTRO * self._escala_ui),
+            )
             self._botao_registro.configure(text="Ocultar registro")
         else:
             self._cartao_registro.grid_remove()
-            self.rowconfigure(4, weight=0)
+            # Sem minsize, a linha vazia continuaria reservando altura.
+            self.rowconfigure(4, weight=0, minsize=0)
             self._botao_registro.configure(text="Mostrar registro")
 
     # ------------------------------------------------------------------
@@ -1284,28 +1632,53 @@ class AplicacaoSimulador(tk.Tk):
     def _ao_redimensionar(self, evento: tk.Event) -> None:
         if evento.widget is not self:
             return
-        modo = "amplo" if evento.width >= LARGURA_MODO_AMPLO else "compacto"
+        modo = "amplo" if evento.width >= self._limite_amplo else "compacto"
         if modo != self._modo_layout:
             self._aplicar_layout(modo)
+        # O subtitulo e decorativo: cede o lugar quando falta largura ou altura
+        # (altura medida em pixels a 96 dpi, para valer igual em telas ampliadas).
+        mostrar = modo == "amplo" and evento.height >= ALTURA_MINIMA_SUBTITULO * self._escala_ui
+        if mostrar != self._subtitulo_visivel:
+            self._subtitulo_visivel = mostrar
+            if mostrar:
+                self._rotulo_subtitulo.grid()
+            else:
+                self._rotulo_subtitulo.grid_remove()
 
     def _aplicar_layout(self, modo: str) -> None:
         """Reorganiza as colunas conforme a largura disponivel.
 
-        Em telas largas as tres colunas ficam lado a lado. Abaixo de
-        ``LARGURA_MODO_AMPLO`` a coluna de dados desce para uma faixa
-        inteira, onde seus quatro cartoes se reorganizam em tres colunas.
+        Em telas largas as tres colunas ficam lado a lado, cada uma com o que
+        cabe na altura da janela sem rolar:
+
+        * mapa e falhas;
+        * pilhas, unidade de dados e custo do empilhamento (o que muda a
+          cada passo do encapsulamento);
+        * parametros e enderecos vigentes.
+
+        Abaixo do limite (``LARGURA_MODO_AMPLO`` na escala da tela) o mapa e
+        as pilhas dividem a faixa de cima, e os quatro cartoes restantes descem
+        para uma faixa inteira, dispostos em tres colunas.
         """
         self._modo_layout = modo
         central = self._area_central
+        pilhas = self._coluna_pilhas
         dados = self._coluna_dados
 
         for indice in range(3):
             central.columnconfigure(indice, weight=0, uniform="")
         for indice in range(2):
             central.rowconfigure(indice, weight=0)
+        for indice in range(3):
+            pilhas.rowconfigure(indice, weight=0)
         for indice in range(4):
             dados.columnconfigure(indice, weight=0, uniform="")
             dados.rowconfigure(indice, weight=0)
+
+        parametros = self._cartao_parametros
+        unidade = self._cartao_unidade
+        enderecos = self._cartao_enderecos
+        eficiencia = self._cartao_eficiencia
 
         if modo == "amplo":
             central.columnconfigure(0, weight=36, uniform="colunas")
@@ -1317,13 +1690,15 @@ class AplicacaoSimulador(tk.Tk):
             self._coluna_pilhas.grid(row=0, column=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
             self._coluna_dados.grid(row=0, column=2, columnspan=1, sticky="nsew", padx=0, pady=0)
 
+            pilhas.rowconfigure(0, weight=3)
+            unidade.grid(in_=pilhas, row=1, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=(10, 0))
+            eficiencia.grid(in_=pilhas, row=2, column=0, rowspan=1, columnspan=1, sticky="nsew", padx=0, pady=(10, 0))
+            pilhas.rowconfigure(2, weight=1)
+
             dados.columnconfigure(0, weight=1)
-            dados.rowconfigure(3, weight=1)
-            self._cartao_parametros.grid(row=0, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=(0, 12))
-            self._cartao_unidade.grid(row=1, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=(0, 12))
-            self._cartao_enderecos.grid(row=2, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=(0, 12))
-            self._cartao_eficiencia.grid(row=3, column=0, rowspan=1, columnspan=1, sticky="nsew", padx=0, pady=0)
-            self._rotulo_subtitulo.grid()
+            dados.rowconfigure(1, weight=1)
+            parametros.grid(in_=dados, row=0, column=0, rowspan=1, columnspan=1, sticky="ew", padx=0, pady=0)
+            enderecos.grid(in_=dados, row=1, column=0, rowspan=1, columnspan=1, sticky="new", padx=0, pady=(12, 0))
         else:
             central.columnconfigure(0, weight=1, uniform="colunas")
             central.columnconfigure(1, weight=1, uniform="colunas")
@@ -1334,16 +1709,22 @@ class AplicacaoSimulador(tk.Tk):
             self._coluna_pilhas.grid(row=0, column=1, columnspan=2, sticky="nsew", padx=0, pady=(0, 12))
             self._coluna_dados.grid(row=1, column=0, columnspan=3, sticky="nsew", padx=0, pady=0)
 
+            pilhas.rowconfigure(0, weight=1)
             dados.columnconfigure(0, weight=36, uniform="dados")
             dados.columnconfigure(1, weight=32, uniform="dados")
             dados.columnconfigure(2, weight=32, uniform="dados")
             dados.rowconfigure(0, weight=1)
             dados.rowconfigure(1, weight=1)
-            self._cartao_parametros.grid(row=0, column=0, rowspan=2, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
-            self._cartao_unidade.grid(row=0, column=1, rowspan=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
-            self._cartao_enderecos.grid(row=1, column=1, rowspan=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
-            self._cartao_eficiencia.grid(row=0, column=2, rowspan=2, columnspan=1, sticky="nsew", padx=0, pady=0)
-            self._rotulo_subtitulo.grid_remove()
+            parametros.grid(in_=dados, row=0, column=0, rowspan=2, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
+            unidade.grid(in_=dados, row=0, column=1, rowspan=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
+            enderecos.grid(in_=dados, row=1, column=1, rowspan=1, columnspan=1, sticky="nsew", padx=(0, 12), pady=0)
+            eficiencia.grid(in_=dados, row=0, column=2, rowspan=2, columnspan=1, sticky="nsew", padx=0, pady=0)
+
+        # Um widget so aparece se estiver acima do quadro em que foi encaixado
+        # na ordem de empilhamento; os cartoes nasceram no quadro central.
+        for cartao in (parametros, unidade, enderecos, eficiencia):
+            cartao.lift()
+        self._rolagem.verificar()
 
     def _registrar_atalhos(self) -> None:
         self.bind("<space>", self._atalho(self._passo))
@@ -1688,6 +2069,7 @@ class AplicacaoSimulador(tk.Tk):
         self._destacar_registro()
         self._atualizar_progresso()
         self._atualizar_controles()
+        self._rolagem.verificar()  # os textos de passo mudam de altura
 
         evento = self._evento_atual()
         if evento is None:
@@ -1712,6 +2094,53 @@ class AplicacaoSimulador(tk.Tk):
     def _alternar_pilha(self) -> None:
         self._modo_pilha = self._var_pilha.get()
         self._desenhar_pilhas()
+
+    def _ligar_desenho(self, canvas: tk.Canvas, desenhar: Callable[[], None]) -> None:
+        """Redesenha ``canvas`` quando o tamanho dele muda.
+
+        Arrastar a borda da janela gera uma rajada de ``<Configure>``. Cada
+        rajada vira um unico desenho, feito quando a fila de eventos esvazia,
+        e eventos que nao mudam o tamanho (so a posicao) sao ignorados.
+        """
+        estado: Dict[str, object] = {"tamanho": None, "agendado": False}
+
+        def executar() -> None:
+            estado["agendado"] = False
+            desenhar()
+
+        def ao_configurar(evento: tk.Event) -> None:
+            tamanho = (evento.width, evento.height)
+            if tamanho == estado["tamanho"]:
+                return
+            estado["tamanho"] = tamanho
+            if not estado["agendado"]:
+                estado["agendado"] = True
+                canvas.after_idle(executar)
+
+        canvas.bind("<Configure>", ao_configurar)
+
+    def _quebrar_no_espaco(
+        self, rotulo: ttk.Label, quadro: tk.Misc, margem: int = 0, minimo: int = 140
+    ) -> None:
+        """Faz o texto de ``rotulo`` quebrar na largura de ``quadro``.
+
+        ``margem`` desconta o preenchimento do quadro. Com um ``wraplength``
+        fixo o texto ficava cortado em colunas estreitas e curto em largas.
+        """
+
+        def ajustar(evento: tk.Event) -> None:
+            largura = max(minimo, evento.width - margem)
+            if int(str(rotulo.cget("wraplength")) or 0) != largura:
+                rotulo.configure(wraplength=largura)
+
+        quadro.bind("<Configure>", ajustar, add="+")
+
+    def _medir(self, fonte: tuple, texto: str) -> int:
+        """Largura em pixels de ``texto`` na ``fonte`` (tupla familia, tamanho...)."""
+        medidor = self._medidores.get(fonte)
+        if medidor is None:
+            medidor = self._medidores[fonte] = tkfont.Font(font=fonte)
+        return medidor.measure(texto)
 
     def _mensagem_vazia(self, canvas: tk.Canvas, texto: str) -> None:
         """Estado vazio: diz o que fazer em vez de deixar a area em branco."""
@@ -1807,12 +2236,16 @@ class AplicacaoSimulador(tk.Tk):
             self._mensagem_vazia(canvas, "Nenhuma topologia carregada.\nUse “Abrir topologia”.")
             return
 
-        zoom = self._mapa_zoom
+        # ``posicao`` (zoom do usuario) diz onde cada dispositivo fica; ``zoom``
+        # dimensiona nos, textos e tracos. Numa area pequena os elementos
+        # encolhem, em vez de se sobrepor, e o zoom do usuario vale por cima.
+        posicao = self._mapa_zoom
+        zoom = posicao * max(0.62, min(1.0, largura / 640, altura / 340))
         margem_x, margem_y = 58, 46
         posicoes = self._topologia.posicoes()
 
         def tela(x: float, y: float) -> Tuple[float, float]:
-            return (x * zoom + self._mapa_pan_x, y * zoom + self._mapa_pan_y)
+            return (x * posicao + self._mapa_pan_x, y * posicao + self._mapa_pan_y)
 
         def ponto(nome: str) -> Tuple[float, float]:
             rx, ry = posicoes[nome]
@@ -1856,8 +2289,8 @@ class AplicacaoSimulador(tk.Tk):
                     font=fonte_mono(8),
                     fill=PALETA["erro"] if not ativo else PALETA["tinta_fraca"],
                 )
-                self._rotulo_interface(canvas, pa, pb, membros[0]["interface"], fonte_mono(8))
-                self._rotulo_interface(canvas, pb, pa, membros[1]["interface"], fonte_mono(8))
+                self._rotulo_interface(canvas, pa, pb, membros[0]["interface"], fonte_mono(8), zoom)
+                self._rotulo_interface(canvas, pb, pa, membros[1]["interface"], fonte_mono(8), zoom)
             else:
                 if ligacao["posicao"]:
                     centro = tela(
@@ -1884,7 +2317,7 @@ class AplicacaoSimulador(tk.Tk):
                         canvas, ponto(nome), centro, ativo, destacado, sentido, zoom, com_erro
                     )
                     self._rotulo_interface(
-                        canvas, ponto(nome), centro, membro["interface"], fonte_mono(8)
+                        canvas, ponto(nome), centro, membro["interface"], fonte_mono(8), zoom
                     )
                 retangulo(
                     canvas,
@@ -1915,7 +2348,13 @@ class AplicacaoSimulador(tk.Tk):
         for nome, descricao in self._topologia.dispositivos.items():
             x, y = ponto(nome)
             roteador = descricao.tipo == "roteador"
-            meia_largura = (48 if roteador else 44) * zoom
+            logico = descricao.interfaces[0].logico
+            texto_largo = max(
+                self._medir(fonte_ui(9, True), nome), self._medir(fonte_mono(8), logico)
+            )
+            # O losango do roteador e mais estreito na altura do texto.
+            necessaria = texto_largo * (0.78 if roteador else 0.5) + 8 * zoom
+            meia_largura = max((48 if roteador else 44) * zoom, necessaria)
             meia_altura = (30 if roteador else 26) * zoom
             destaque = nome == atual
             cor_fundo = (
@@ -1966,7 +2405,7 @@ class AplicacaoSimulador(tk.Tk):
             canvas.create_text(
                 x,
                 y + 8 * zoom,
-                text=descricao.interfaces[0].logico,
+                text=logico,
                 font=fonte_mono(8),
                 fill=PALETA["tinta_fraca"],
             )
@@ -2039,10 +2478,12 @@ class AplicacaoSimulador(tk.Tk):
             opcoes["arrowshape"] = (12 * zoom, 15 * zoom, 5 * zoom)
         canvas.create_line(*origem, *destino, **opcoes)
 
-    def _rotulo_interface(self, canvas: tk.Canvas, origem, destino, nome: str, fonte) -> None:
+    def _rotulo_interface(
+        self, canvas: tk.Canvas, origem, destino, nome: str, fonte, escala: float
+    ) -> None:
         dx, dy = destino[0] - origem[0], destino[1] - origem[1]
         comprimento = max(1.0, (dx * dx + dy * dy) ** 0.5)
-        fator = min(0.34, 48 * self._mapa_zoom / comprimento)
+        fator = min(0.34, 48 * escala / comprimento)
         canvas.create_text(
             origem[0] + dx * fator,
             origem[1] + dy * fator,
@@ -2280,6 +2721,13 @@ class AplicacaoSimulador(tk.Tk):
         base = max(96.0, altura - 6)
 
         def caixa(x: float, titulo: str, nota: str, par, cor: str) -> None:
+            origem, destino = par if par else ("—", "—")
+            linhas = (f"origem   {origem}", f"destino  {destino}")
+            fonte_valores = self.fonte_mono
+            for tamanho in (9, 8, 7):
+                fonte_valores = (self.familia_mono, tamanho)
+                if max(self._medir(fonte_valores, t) for t in linhas) <= metade - 22:
+                    break
             retangulo(
                 canvas,
                 x,
@@ -2304,23 +2752,15 @@ class AplicacaoSimulador(tk.Tk):
                 fill=PALETA["tinta_suave"],
                 width=metade - 20,
             )
-            origem, destino = par if par else ("—", "—")
-            canvas.create_text(
-                x + 11,
-                base - 34,
-                text=f"origem   {origem}",
-                anchor="w",
-                font=self.fonte_mono,
-                fill=PALETA["tinta"],
-            )
-            canvas.create_text(
-                x + 11,
-                base - 14,
-                text=f"destino  {destino}",
-                anchor="w",
-                font=self.fonte_mono,
-                fill=PALETA["tinta"],
-            )
+            for deslocamento, linha in ((34, linhas[0]), (14, linhas[1])):
+                canvas.create_text(
+                    x + 11,
+                    base - deslocamento,
+                    text=linha,
+                    anchor="w",
+                    font=fonte_valores,
+                    fill=PALETA["tinta"],
+                )
 
         caixa(
             2,

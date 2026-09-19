@@ -88,6 +88,19 @@ class _Widget:
     def winfo_height(self):
         return 420
 
+    def winfo_reqwidth(self):
+        return 120
+
+    def winfo_reqheight(self):
+        return 32
+
+    def winfo_containing(self, *_):
+        return None
+
+    def after_idle(self, funcao, *args):
+        """Agendamentos ociosos so registram a chamada: nao ha laco de eventos."""
+        return "idle"
+
     def winfo_screenwidth(self):
         return 1920
 
@@ -192,6 +205,9 @@ class _Canvas(_Widget):
     def delete(self, *_):
         self.itens.clear()
 
+    def create_window(self, *a, **k):
+        return self._criar("janela", a, k)
+
     def bbox(self, *_):
         return (0, 0, 520, 420)
 
@@ -242,6 +258,16 @@ class _Text(_Widget):
 
     def index(self, *_):
         return "1.0"
+
+
+class _Fonte:
+    """Medidor de texto: largura proporcional ao numero de caracteres."""
+
+    def __init__(self, *a, **k):
+        self.opcoes = k
+
+    def measure(self, texto, *_):
+        return 7 * len(str(texto))
 
 
 class _Variavel:
@@ -439,7 +465,7 @@ def _instalar() -> None:
         "Segoe UI", "Consolas", "DejaVu Sans", "DejaVu Sans Mono",
     )
     fonte.nametofont = lambda *a, **k: _Widget()
-    fonte.Font = _Widget
+    fonte.Font = _Fonte
     tk.font = fonte
     tk.Misc = _Widget
     tk.Widget = _Widget

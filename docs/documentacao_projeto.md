@@ -385,11 +385,33 @@ acima, e não apenas a ausência de erro.
   com um `X`. Abaixo, os botões de falha: derrubar enlace e injetar erro de bit.
 - **Coluna 2 — as pilhas.** As camadas da origem, dos roteadores do percurso e
   do destino. A camada ativa é a única colorida; as demais ficam esmaecidas.
-- **Coluna 3 — os dados.** Origem, destino, processos, portas e mensagem, a
-  unidade de dados desenhada em blocos, os endereços lógicos e físicos lado a
-  lado e o quadro de eficiência.
+  Logo abaixo, o que muda a cada passo do encapsulamento: a unidade de dados
+  desenhada em blocos e o quadro de eficiência.
+- **Coluna 3 — os parâmetros.** Origem, destino, processos, portas e mensagem,
+  e os endereços lógicos e físicos lado a lado.
 - **Rodapé.** Passo, Executar, Pausar, Reiniciar, velocidade, progresso e o
   registro rolável, com a linha atual em destaque e os descartes em vermelho.
+
+### Responsividade
+
+A janela se adapta ao tamanho e à escala de tela do sistema (100%, 125%...):
+
+- **Três colunas ou duas faixas.** Acima de 1360 px (multiplicados pela escala
+  da tela) as colunas ficam lado a lado; abaixo disso, mapa e pilhas dividem a
+  faixa de cima e os demais cartões descem para uma faixa inteira.
+- **Barras que quebram linha.** As barras superior, de controles e de estado, e
+  os botões de falha passam os itens que não cabem para a linha de baixo, em
+  vez de sair da janela (`LinhasFlexiveis`).
+- **Rolagem só quando falta altura.** Se o conteúdo não cabe na altura da
+  janela, a área central ganha uma barra de rolagem vertical (`AreaRolavel`);
+  a roda do mouse rola a área, exceto sobre o mapa, onde ela ainda é o zoom.
+  O registro de eventos mantém uma altura mínima e nunca some.
+- **Elementos que acompanham o espaço.** O formulário passa a uma coluna quando
+  os rótulos não cabem lado a lado, textos de ajuda quebram na largura do
+  cartão, notas de cabeçalho somem em vez de ficarem cortadas, e o mapa reduz
+  nós e textos em áreas pequenas.
+- **Redesenho agrupado.** Arrastar a borda da janela gera uma rajada de eventos;
+  cada canvas é redesenhado uma vez por rajada, e só se o tamanho mudou.
 
 Decisões de interface que valem registro:
 
